@@ -1,8 +1,11 @@
 package async
+
 import (
+	"fmt"
+	"log"
+	"os"
 	"sync"
 	"sync/atomic"
-	"log"
 )
 
 type AsyncError struct {
@@ -18,7 +21,7 @@ func NewAsyncError(msg string) error {
 }
 
 type Promise struct {
-	cond *sync.Cond
+	cond     *sync.Cond
 	isClosed atomic.Value
 }
 
@@ -96,17 +99,19 @@ type AsyncTask func()
 type ComputableAsyncTask func() interface{}
 
 const (
-	IDLE = 0
-	RUNNING = 1
+	IDLE        = 0
+	RUNNING     = 1
 	TERMINATING = 2
-	TERMINATED = 3
+	TERMINATED  = 3
 )
 
 type AsyncPool struct {
-	rwLock *sync.RWMutex
-	channel chan AsyncTask
+	id         string
+	rwLock     *sync.RWMutex
+	channel    chan AsyncTask
 	numWorkers int
-	status int
+	status     int
+	logger     *log.Logger
 }
 
 type IAsyncPool interface {
@@ -121,12 +126,14 @@ type IAsyncPool interface {
 	ScheduleComputable(computableTask ComputableAsyncTask) IFuture
 }
 
-func NewAsyncPool(maxPoolSize, workerSize int) *AsyncPool {
+func NewAsyncPool(id string, maxPoolSize, workerSize int) *AsyncPool {
 	return &AsyncPool{
+		id,
 		new(sync.RWMutex),
 		make(chan AsyncTask, getInRangeInt(maxPoolSize, 16, 2048)),
-			getInRangeInt(workerSize, 2, 1024),
-			0,
+		getInRangeInt(workerSize, 2, 1024),
+		0,
+		log.New(os.Stdout, fmt.Sprintf("AsyncPool[pool-%s]", id), log.Ldate|log.Ltime|log.Lshortfile),
 	}
 }
 
@@ -141,7 +148,7 @@ func (p *AsyncPool) setStatus(status int) {
 	defer p.rwLock.Unlock()
 	if status > -1 && status < 4 {
 		p.status = status
-		log.Println("Pool status has transited to ", status)
+		p.logger.Printf("Pool status has transited to %d\n", status)
 	}
 	return
 }
@@ -173,35 +180,39 @@ func (p *AsyncPool) Start() {
 					// simply take task and work on it sequentially
 					task, isOpen := <-p.channel
 					if isOpen {
-						log.Printf("Worker %d has acquired task %p\n", wi, task)
+						p.logger.Printf("Worker %d has acquired task %p\n", wi, task)
 						task()
 					}
 				}
-				log.Println("Worker ", wi, " terminated")
+				p.logger.Printf("Worker %d terminated\n", wi)
 				wg.Done()
 			}(i)
 		}
 		// wait till all workers terminated
 		wg.Wait()
 		p.setStatus(TERMINATED)
-		log.Println("All worker has been terminated")
+		p.logger.Printf("All worker has been terminated\n")
 	}()
 	p.setStatus(RUNNING)
 }
 
 func (p *AsyncPool) Stop() {
 	if !p.HasStarted() {
-		log.Println("Warn pool has not started")
+		p.logger.Printf("Warn pool has not started\n")
 		return
 	}
 	close(p.channel)
 	p.setStatus(TERMINATING)
-	for p.getStatus() != TERMINATED {}
+	for p.getStatus() != TERMINATED {
+	}
 }
 
 func (p *AsyncPool) schedule(task AsyncTask) {
+	if !p.HasStarted() {
+		p.Start()
+	}
 	p.channel <- task
-	log.Printf("Task %p has been scheduled\n", task)
+	p.logger.Printf("Task %p has been scheduled\n", task)
 }
 
 // will block on channel buffer size exceeded

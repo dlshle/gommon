@@ -13,6 +13,7 @@ import (
 
 	"mongoClient/async"
 	"mongoClient/deepcopy"
+	"mongoClient/performance"
 )
 
 type Unmarshaler interface {
@@ -174,27 +175,109 @@ func main() {
 		fmt.Println("collection.InsertOne: ", insertOneResult)
 	}(false)
 
+	dur := performance.Measure(func() {
+		fmt.Println("promise and future test")
+		p := async.NewAsyncPool("0", 10, 4)
+		p.Start()
+		p0 := p.Schedule(func() {
+			time.Sleep(time.Second * 2)
+			fmt.Println("2 seconds done")
+		})
 
+		p1 := p.Schedule(func() {
+			time.Sleep(time.Second * 1)
+			fmt.Println("1 seconds done")
+		})
 
+		go func() {
+			p0.Wait()
+			fmt.Println("f1")
+		}()
 
-	fmt.Println("promise and future test")
-	p := async.NewAsyncPool(10, 4)
-	p.Start()
-	p0 := p.Schedule(func() {
-		time.Sleep(time.Second * 2)
-		fmt.Println("2 seconds done")
+		go func() {
+			p0.Wait()
+			fmt.Println("f2")
+		}()
+
+		go func() {
+			time.Sleep(time.Millisecond * 1999)
+			p0.Wait()
+			fmt.Println("f wait 1.9 seconds")
+		}()
+
+		p0.Wait()
+		fmt.Println("p0 waiting done")
+		p1.Wait()
+		fmt.Println("p1 waiting done")
+
+		go func() {
+			p0.Wait()
+			fmt.Println("fx1")
+		}()
+
+		go func() {
+			p0.Wait()
+			fmt.Println("fx2")
+		}()
+
+		f0 := p.ScheduleComputable(func() interface{} {
+			time.Sleep(1 * time.Second)
+			return 1
+		})
+
+		go func() {
+			fmt.Println("f00: ", f0.Get())
+		}()
+
+		go func() {
+			fmt.Println("f01: ", f0.Get())
+		}()
+
+		go func() {
+			time.Sleep(999 * time.Millisecond)
+			fmt.Println("f01 999: ", f0.Get())
+		}()
+
+		fmt.Println("f0 result: ", f0.Get())
+		p.Stop()
 	})
+	fmt.Println("task duration: ", dur)
+	dur = performance.MeasureWithLog("100 async tasks", func() {
+		pwaiters := make([]async.IPromise, 50)
+		fwaiters := make([]async.IFuture, 50)
+		p := async.NewAsyncPool("Hundred", 1024, 10)
 
-	p1 := p.Schedule(func() {
-		time.Sleep(time.Second * 1)
-		fmt.Println("1 seconds done")
+		ptask := func() {
+			time.Sleep(time.Second * 2)
+		}
+
+		ftask := func() interface{} {
+			time.Sleep(time.Second * 1)
+			return 5
+		}
+
+		for i := 0; i < 50; i++ {
+			pwaiters = append(pwaiters, p.Schedule(ptask))
+		}
+
+		for i := 0; i < 50; i++ {
+			fwaiters = append(fwaiters, p.ScheduleComputable(ftask))
+		}
+
+		for _, w := range pwaiters {
+			if w != nil {
+				w.Wait()
+			}
+		}
+
+		for _, w := range fwaiters {
+			if w != nil {
+				w.Wait()
+			}
+		}
+
+		p.Stop()
 	})
-
-	p0.Wait()
-	fmt.Println("p0 waiting done")
-	p1.Wait()
-	fmt.Println("p1 waiting done")
-	p.Stop()
 }
 
 func buildQueryFilter(filterMap map[string]interface{}) interface{} {

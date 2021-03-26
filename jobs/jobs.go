@@ -8,27 +8,25 @@ import (
 )
 
 const (
-	JOB_STATUS_WAITING     = 0
-	JOB_STATUS_RUNNING     = 1
-	JOB_STATUS_DONE        = 2
-	JOB_STATUS_TERMINATING = 4
+	JobStatusWaiting     = 0
+	JobStatusRunning     = 1
+	JobStatusDone        = 2
+	JobStatusTerminating = 4
 
-	EVICT_POLICY_CANCEL_LAST = 0
-
-	FINISH_POLICY_REMOVE = 0
+	EvictPolicyCancelLast = 0
 )
 
 const (
-	timeout_executor_strategy  = 0
-	interval_executor_strategy = 1
+	timeoutExecutorStrategy  = 0
+	intervalExecutorStrategy = 1
 
-	transit_WAITING_RUNNING     = 1
-	transit_WAITING_DONE        = 2
-	transit_WAITING_TERMINATING = 4
-	transit_TERMINATING_DONE    = 42 // interval job only
-	transit_RUNNING_DONE        = 12
-	transit_RUNNING_TERMINATING = 14 // interval job only
-	transit_RUNNING_WAITING     = 10 // interval job only
+	transitWaitingRunning     = 1
+	transitWaitingDone        = 2
+	transitWaitingTerminating = 4
+	transitTerminatingDone    = 42 // interval job only
+	transitRunningDone        = 12
+	transitRunningTerminating = 14 // interval job only
+	transitRunningWaiting     = 10 // interval job only
 )
 
 var globalLogger = log.New(os.Stdout, "[Performance]", log.Ldate|log.Ltime|log.Lshortfile)
@@ -46,10 +44,10 @@ func init() {
 }
 
 func initPoolEvictStrategy() {
-	jobPoolEvictStrategies[EVICT_POLICY_CANCEL_LAST] = func(p *JobPool, uuid int64) {
+	jobPoolEvictStrategies[EvictPolicyCancelLast] = func(p *JobPool, uuid int64) {
 		job := p.jobMap[uuid]
 		if job != nil {
-			job.Status = JOB_STATUS_DONE
+			job.Status = JobStatusDone
 			delete(p.jobMap, uuid)
 		} else {
 			p.logger.Printf("WARN job[%d] does not exist!\n", uuid)
@@ -58,28 +56,28 @@ func initPoolEvictStrategy() {
 }
 
 func initTransitStrategy() {
-	jobPoolTransitStrategies[transit_WAITING_RUNNING] = func(p *JobPool, uuid int64) {
+	jobPoolTransitStrategies[transitWaitingRunning] = func(p *JobPool, uuid int64) {
 		p.logger.Printf("Task %d started running\n")
 		p.jobMap[uuid].executor()
 	}
-	jobPoolTransitStrategies[transit_WAITING_DONE] = func(p *JobPool, uuid int64) {
+	jobPoolTransitStrategies[transitWaitingDone] = func(p *JobPool, uuid int64) {
 		p.logger.Printf("Task %d is canceled\n")
 		jobPoolEvictStrategies[p.evictPolicy](p, uuid)
 	}
-	jobPoolTransitStrategies[transit_WAITING_TERMINATING] = func(p *JobPool, uuid int64) {
+	jobPoolTransitStrategies[transitWaitingTerminating] = func(p *JobPool, uuid int64) {
 		p.logger.Printf("Task %d is terminating after waiting...\n")
 	}
-	jobPoolTransitStrategies[transit_RUNNING_DONE] = func(p *JobPool, uuid int64) {
+	jobPoolTransitStrategies[transitRunningDone] = func(p *JobPool, uuid int64) {
 		p.logger.Printf("Task %d finished\n")
 		jobPoolEvictStrategies[p.evictPolicy](p, uuid)
 	}
-	jobPoolTransitStrategies[transit_RUNNING_TERMINATING] = func(p *JobPool, uuid int64) {
+	jobPoolTransitStrategies[transitRunningTerminating] = func(p *JobPool, uuid int64) {
 		p.logger.Printf("Task %d is terminating after running...\n")
 	}
-	jobPoolTransitStrategies[transit_RUNNING_WAITING] = func(p *JobPool, uuid int64) {
+	jobPoolTransitStrategies[transitRunningWaiting] = func(p *JobPool, uuid int64) {
 		p.logger.Printf("Task %d interval done, onto the next interval...\n")
 	}
-	jobPoolTransitStrategies[transit_TERMINATING_DONE] = func(p *JobPool, uuid int64) {
+	jobPoolTransitStrategies[transitTerminatingDone] = func(p *JobPool, uuid int64) {
 		p.logger.Printf("Task %d final interval done, task has been terminated\n")
 		jobPoolEvictStrategies[p.evictPolicy](p, uuid)
 	}
@@ -87,49 +85,51 @@ func initTransitStrategy() {
 
 func initPoolExecutorBuilder() {
 	shouldTerminateJob := func(p *JobPool, uuid int64) bool {
-		return p.GetStatus(uuid) == JOB_STATUS_TERMINATING
+		return p.GetStatus(uuid) == JobStatusTerminating
 	}
-	jobPoolExecutorBuildingStrategies[timeout_executor_strategy] = func(p *JobPool, task func(), duration time.Duration) *Job {
+	jobPoolExecutorBuildingStrategies[timeoutExecutorStrategy] = func(p *JobPool, task func(), duration time.Duration) *Job {
 		uuid := time.Now().Unix()
 		return NewJob(uuid, func() {
 			time.Sleep(duration)
 			if shouldTerminateJob(p, uuid) {
-				p.transitJobStatus(uuid, JOB_STATUS_DONE)
+				p.transitJobStatus(uuid, JobStatusDone)
 				return
 			}
-			p.transitJobStatus(uuid, JOB_STATUS_RUNNING)
+			p.transitJobStatus(uuid, JobStatusRunning)
 			task()
-			p.transitJobStatus(uuid, JOB_STATUS_DONE)
+			p.transitJobStatus(uuid, JobStatusDone)
 		})
 	}
-	jobPoolExecutorBuildingStrategies[interval_executor_strategy] = func(p *JobPool, task func(), duration time.Duration) *Job {
+	jobPoolExecutorBuildingStrategies[intervalExecutorStrategy] = func(p *JobPool, task func(), duration time.Duration) *Job {
 		uuid := time.Now().Unix()
 		return NewJob(uuid, func() {
 			for {
 				time.Sleep(duration)
-				p.transitJobStatus(uuid, JOB_STATUS_RUNNING)
+				p.transitJobStatus(uuid, JobStatusRunning)
 				if shouldTerminateJob(p, uuid) {
-					p.transitJobStatus(uuid, JOB_STATUS_DONE)
+					p.transitJobStatus(uuid, JobStatusDone)
 					return
 				}
 				task()
 				if shouldTerminateJob(p, uuid) {
-					p.transitJobStatus(uuid, JOB_STATUS_DONE)
+					p.transitJobStatus(uuid, JobStatusDone)
 					return
 				}
-				p.transitJobStatus(uuid, JOB_STATUS_WAITING)
+				p.transitJobStatus(uuid, JobStatusWaiting)
 			}
-			p.transitJobStatus(uuid, JOB_STATUS_DONE)
+			p.transitJobStatus(uuid, JobStatusDone)
 		})
 	}
 }
 
 func initStatusStringMap() {
-	statusStringMap[JOB_STATUS_WAITING] = "WAITING"
-	statusStringMap[JOB_STATUS_RUNNING] = "RUNNING"
-	statusStringMap[JOB_STATUS_DONE] = "DONE"
-	statusStringMap[JOB_STATUS_TERMINATING] = "TERMINATING"
+	statusStringMap[JobStatusWaiting] = "WAITING"
+	statusStringMap[JobStatusRunning] = "RUNNING"
+	statusStringMap[JobStatusDone] = "DONE"
+	statusStringMap[JobStatusTerminating] = "TERMINATING"
 }
+
+// --------------- Type and Interface Definitions & Implementations --------------- //
 
 type Job struct {
 	executor func()
@@ -147,7 +147,7 @@ type JobPool struct {
 	maxSize      uint
 	evictPolicy  int
 	finishPolicy int
-	logger       log.Logger
+	logger       *log.Logger
 	*sync.RWMutex
 }
 
@@ -192,7 +192,7 @@ func (p *JobPool) GetStatus(id int64) int {
 	defer p.RWMutex.RUnlock()
 	job := p.jobMap[id]
 	if job == nil {
-		return JOB_STATUS_DONE
+		return JobStatusDone
 	} else {
 		return job.Status
 	}
@@ -207,11 +207,11 @@ func (p *JobPool) scheduleJob(task func(), duration time.Duration, executorStrat
 }
 
 func (p *JobPool) ScheduleTimeoutJob(task func(), duration time.Duration) int64 {
-	return p.scheduleJob(task, duration, timeout_executor_strategy)
+	return p.scheduleJob(task, duration, timeoutExecutorStrategy)
 }
 
 func (p *JobPool) ScheduleIntervalJob(task func(), duration time.Duration) int64 {
-	return p.scheduleJob(task, duration, interval_executor_strategy)
+	return p.scheduleJob(task, duration, intervalExecutorStrategy)
 }
 
 func (p *JobPool) CancelJob(uuid int64) bool {
@@ -219,6 +219,6 @@ func (p *JobPool) CancelJob(uuid int64) bool {
 		p.logger.Printf("Can not find job %d\n", uuid)
 		return false
 	}
-	p.transitJobStatus(uuid, JOB_STATUS_TERMINATING)
+	p.transitJobStatus(uuid, JobStatusTerminating)
 	return true
 }

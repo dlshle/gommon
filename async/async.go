@@ -182,6 +182,8 @@ func (p *AsyncPool) Start() {
 					if isOpen {
 						p.logger.Printf("Worker %d has acquired task %p\n", wi, task)
 						task()
+					} else {
+						break
 					}
 				}
 				p.logger.Printf("Worker %d terminated\n", wi)

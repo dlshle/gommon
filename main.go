@@ -282,7 +282,7 @@ func main() {
 		})
 	*/
 	performance.MeasureWithLog("jobPool", func() {
-		jobPool := timed.NewJobPool("t", 1024)
+		jobPool := timed.NewJobPool("t", 1)
 		jobPool.ScheduleTimeoutJob(func() {
 			fmt.Println("after 3 seconds")
 		}, time.Second*3)
@@ -290,11 +290,11 @@ func main() {
 			fmt.Println("haha")
 		}, time.Second*1)
 		time.Sleep(time.Second * 5)
-		jobPool.CancelJob(uuid)
-		time.Sleep(time.Second * 1)
 		jobPool.ScheduleAsyncTimeoutJob(func() {
 			fmt.Printf("Remember me!?\n")
 		}, time.Second*2)
+		jobPool.CancelJob(uuid)
+		time.Sleep(time.Second * 1)
 	})
 	timed.RunTimeout(func() {
 		fmt.Println("global pool test")

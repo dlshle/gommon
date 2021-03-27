@@ -166,6 +166,7 @@ type IJobPool interface {
 	GetStatus(uuid int64) int
 	setStatus(uuid int64, status int)
 	transitJobStatus(uuid int64, status int)
+	Size() int
 }
 
 func NewJobPool(id string, maxSize int) *JobPool {
@@ -201,6 +202,12 @@ func (p *JobPool) transitJobStatus(uuid int64, status int) {
 	transitHandler(p, uuid)
 }
 
+func (p *JobPool) Size() int {
+	p.RWMutex.RLock()
+	defer p.RWMutex.RUnlock()
+	return len(p.jobMap)
+}
+
 func (p *JobPool) setStatus(uuid int64, status int) {
 	p.RWMutex.Lock()
 	defer p.RWMutex.Unlock()
@@ -225,8 +232,8 @@ func (p *JobPool) GetStatus(id int64) int {
 }
 
 func (p *JobPool) scheduleJob(Job func(), duration time.Duration, executorStrategy int, runAsync bool) int64 {
-	if len(p.jobMap) >= p.maxSize {
-		p.logger.Println("Max pool size has been reached, new job will be evicted.")
+	if p.Size() >= p.maxSize {
+		p.logger.Println("Error: max pool size has been reached, new job will be evicted!")
 		return -1
 	}
 	job := jobExecutorBuildingStrategies[executorStrategy](p, Job, duration)

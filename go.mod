@@ -2,4 +2,7 @@ module mongoClient
 
 go 1.13
 
-require go.mongodb.org/mongo-driver v1.5.0
+require (
+	github.com/pkg/errors v0.9.1 // indirect
+	go.mongodb.org/mongo-driver v1.5.0
+)

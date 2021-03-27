@@ -51,130 +51,132 @@ func (user *User) UnmarshalBSON(b []byte) error {
 */
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://admin:19950416@39.96.92.228:27017/test?authSource=admin"))
+	func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://admin:19950416@39.96.92.228:27017/test?authSource=admin"))
 
-	defer func() {
-		if err = client.Disconnect(ctx); err != nil {
-			panic(err)
-		}
-	}()
+		defer func() {
+			if err = client.Disconnect(ctx); err != nil {
+				panic(err)
+			}
+		}()
 
-	if err != nil {
-		fmt.Println("error: ", err)
-		return
-	}
-	err = client.Ping(ctx, readpref.Primary())
-	if err != nil {
-		fmt.Println("ping failed due to: ", err)
-		return
-	}
-
-	collection := client.Database("test").Collection("users-go1")
-
-	// find one
-	func(run bool) {
-		if !run {
+		if err != nil {
+			fmt.Println("error: ", err)
 			return
 		}
-		var result User
-		// even though the struct uses Name, since the key is name in the collection, we need to use name as search key
-		filter := bson.D{{"name", "Daniel"}}
-		err := collection.FindOne(ctx, filter).Decode(&result)
+		err = client.Ping(ctx, readpref.Primary())
 		if err != nil {
-			fmt.Println("find one error: ", err)
-		} else {
-			fmt.Printf("User find one result: %+v\n", result)
+			fmt.Println("ping failed due to: ", err)
+			return
 		}
-	}(false)
 
-	find := func(holder interface{}) []interface{} {
-		res := make([]interface{}, 1)
-		findOptions := options.Find()
-		// findOptions.SetLimit(2)
-		cur, err := collection.Find(ctx, bson.D{}, findOptions)
-		if err != nil {
-			fmt.Println("find failed due to ", err)
+		collection := client.Database("test").Collection("users-go1")
+
+		// find one
+		func(run bool) {
+			if !run {
+				return
+			}
+			var result User
+			// even though the struct uses Name, since the key is name in the collection, we need to use name as search key
+			filter := bson.D{{"name", "Daniel"}}
+			err := collection.FindOne(ctx, filter).Decode(&result)
+			if err != nil {
+				fmt.Println("find one error: ", err)
+			} else {
+				fmt.Printf("User find one result: %+v\n", result)
+			}
+		}(false)
+
+		find := func(holder interface{}) []interface{} {
+			res := make([]interface{}, 1)
+			findOptions := options.Find()
+			// findOptions.SetLimit(2)
+			cur, err := collection.Find(ctx, bson.D{}, findOptions)
+			if err != nil {
+				fmt.Println("find failed due to ", err)
+				return res
+			}
+
+			defer cur.Close(ctx)
+			for cur.Next(ctx) {
+				err := cur.Decode(holder)
+				if err != nil {
+					fmt.Println("cur decode error: ", err)
+					return res
+				}
+				// TODO I need to append the new copy of the holder not the reference here...
+				var cpy interface{}
+				if _, ok := holder.(ICopy); ok {
+					var copiable ICopy = holder.(ICopy)
+					cpy = copiable.Copy()
+					fmt.Printf("copied: %+v\n", cpy)
+				} else {
+					cpy = deepcopy.Copy(holder)
+					fmt.Printf("deep copied: %+v\n", cpy)
+				}
+				res = append(res, cpy)
+			}
+
+			if err := cur.Err(); err != nil {
+				fmt.Println("cur.Err() ", err)
+			}
 			return res
 		}
 
-		defer cur.Close(ctx)
-		for cur.Next(ctx) {
-			err := cur.Decode(holder)
+		// find many
+		func(run bool) {
+			/*
+			   if !run { return }
+			   findOptions := options.Find()
+			   findOptions.SetLimit(2)
+			   cur, err := collection.Find(ctx, bson.D{}, findOptions)
+			   if err != nil {
+			     fmt.Println("find failed due to ", err)
+			     return
+			   }
+
+			   defer cur.Close(ctx)
+			   for cur.Next(ctx) {
+			     var result User
+			     err := cur.Decode(&result)
+			     if err != nil {
+			       fmt.Println("cur decode error: ", err)
+			       return
+			     }
+			     fmt.Printf("result: %+v\n", result)
+			   }
+
+			   if err := cur.Err(); err != nil {
+			     fmt.Println("cur.Err() ", err)
+			   }
+			*/
+
+			usr := &User{}
+			res := find(usr)
+			for _, u := range res {
+				fmt.Printf("%+v\n", u)
+			}
+			fmt.Println(res)
+			fmt.Println(reflect.TypeOf(res[1]))
+		}(true)
+
+		// insert one
+		func(run bool) {
+			if !run {
+				return
+			}
+			newUser := &User{"Xuri", 26}
+			insertOneResult, err := collection.InsertOne(ctx, newUser)
 			if err != nil {
-				fmt.Println("cur decode error: ", err)
-				return res
+				fmt.Println("insert failed ", err)
+				return
 			}
-			// TODO I need to append the new copy of the holder not the reference here...
-			var cpy interface{}
-			if _, ok := holder.(ICopy); ok {
-				var copiable ICopy = holder.(ICopy)
-				cpy = copiable.Copy()
-				fmt.Printf("copied: %+v\n", cpy)
-			} else {
-				cpy = deepcopy.Copy(holder)
-				fmt.Printf("deep copied: %+v\n", cpy)
-			}
-			res = append(res, cpy)
-		}
-
-		if err := cur.Err(); err != nil {
-			fmt.Println("cur.Err() ", err)
-		}
-		return res
-	}
-
-	// find many
-	func(run bool) {
-		/*
-		   if !run { return }
-		   findOptions := options.Find()
-		   findOptions.SetLimit(2)
-		   cur, err := collection.Find(ctx, bson.D{}, findOptions)
-		   if err != nil {
-		     fmt.Println("find failed due to ", err)
-		     return
-		   }
-
-		   defer cur.Close(ctx)
-		   for cur.Next(ctx) {
-		     var result User
-		     err := cur.Decode(&result)
-		     if err != nil {
-		       fmt.Println("cur decode error: ", err)
-		       return
-		     }
-		     fmt.Printf("result: %+v\n", result)
-		   }
-
-		   if err := cur.Err(); err != nil {
-		     fmt.Println("cur.Err() ", err)
-		   }
-		*/
-
-		usr := &User{}
-		res := find(usr)
-		for _, u := range res {
-			fmt.Printf("%+v\n", u)
-		}
-		fmt.Println(res)
-		fmt.Println(reflect.TypeOf(res[1]))
-	}(true)
-
-	// insert one
-	func(run bool) {
-		if !run {
-			return
-		}
-		newUser := &User{"Xuri", 26}
-		insertOneResult, err := collection.InsertOne(ctx, newUser)
-		if err != nil {
-			fmt.Println("insert failed ", err)
-			return
-		}
-		fmt.Println("collection.InsertOne: ", insertOneResult)
-	}(false)
+			fmt.Println("collection.InsertOne: ", insertOneResult)
+		}(false)
+	}()
 
 	dur := performance.Measure(func() {
 		fmt.Println("promise and future test")

@@ -125,8 +125,8 @@ func newHTTPResponse(success bool, code int, header http.Header, body string) *H
 	return &HTTPResponse{success, code, header, body}
 }
 
-func newErrorHTTPResponse(err_code int, msg string) *HTTPResponse {
-	return &HTTPResponse{success: false, code: err_code, body: msg}
+func newErrorHTTPResponse(errCode int, msg string) *HTTPResponse {
+	return &HTTPResponse{success: false, code: errCode, body: msg}
 }
 
 func toHTTPResponse(resp *http.Response) (*HTTPResponse, error) {
@@ -263,8 +263,8 @@ func (c *HTTPClient) start() {
 					if err != nil {
 						awaitable_chan <- newErrorHTTPResponse(-1, err.Error())
 					} else {
-						httpResp, transform_err := toHTTPResponse(resp)
-						if transform_err != nil {
+						httpResp, transformErr := toHTTPResponse(resp)
+						if transformErr != nil {
 							awaitable_chan <- newErrorHTTPResponse(-1, err.Error())
 						} else {
 							awaitable_chan <- httpResp
@@ -352,9 +352,9 @@ func (c *HTTPClient) toRawRequest(request *HTTPRequest) (*http.Request, error) {
 	return rawRequest, nil
 }
 
-func NewHTTPClient(baseUrl string, num_clients int, timeout_in_sec int, delayTime int) *HTTPClient {
-	if num_clients > MaxClientSize {
-		num_clients = MaxClientSize
+func NewHTTPClient(baseUrl string, numClients int, timeoutInSec int, delayTime int) *HTTPClient {
+	if numClients > MaxClientSize {
+		numClients = MaxClientSize
 	}
 	if delayTime < 0 {
 		delayTime = 0
@@ -362,9 +362,9 @@ func NewHTTPClient(baseUrl string, num_clients int, timeout_in_sec int, delayTim
 	if delayTime > MaxDelayTime {
 		delayTime = MaxDelayTime
 	}
-	rawClients := make([]*http.Client, num_clients)
-	for i := 0; i < num_clients; i++ {
-		rawClients[i] = newHTTPClient(timeout_in_sec)
+	rawClients := make([]*http.Client, numClients)
+	for i := 0; i < numClients; i++ {
+		rawClients[i] = newHTTPClient(timeoutInSec)
 	}
 	return &HTTPClient{new(sync.RWMutex), false, false, baseUrl, rawClients, newHTTPRequestQueue(), make([]RequestProcessor, 0, 5), delayTime}
 }
@@ -387,8 +387,8 @@ func copyRequest(request *HTTPRequest, amount int) []*HTTPRequest {
 	return list
 }
 
-func buildRCClient(baseUrl string, num_clients int, delayTime int) *HTTPClient {
-	return NewHTTPClient(baseUrl, num_clients, 5, delayTime)
+func buildRCClient(baseUrl string, numClients int, delayTime int) *HTTPClient {
+	return NewHTTPClient(baseUrl, numClients, 5, delayTime)
 }
 
 func buildRCRequestWithToken(url string, method string, token string) *HTTPRequest {

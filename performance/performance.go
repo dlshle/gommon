@@ -16,6 +16,6 @@ func Measure(task func()) time.Duration {
 
 func MeasureWithLog(id string, task func()) time.Duration {
 	duration := Measure(task)
-	globalLogger.Println("[task-", id, "] duration = ", duration)
+	globalLogger.Printf("[task-%s] duration = %v\n", id, duration)
 	return duration
 }

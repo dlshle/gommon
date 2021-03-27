@@ -14,6 +14,7 @@ import (
 	"mongoClient/async"
 	"mongoClient/deepcopy"
 	"mongoClient/performance"
+	"mongoClient/timed"
 )
 
 type Unmarshaler interface {
@@ -242,42 +243,62 @@ func main() {
 		p.Stop()
 	})
 	fmt.Println("task duration: ", dur)
-	dur = performance.MeasureWithLog("100 async tasks", func() {
-		pwaiters := make([]async.IPromise, 50)
-		fwaiters := make([]async.IFuture, 50)
-		p := async.NewAsyncPool("Hundred", 1024, 10)
+	/*
+		dur = performance.MeasureWithLog("100 async tasks", func() {
+			pwaiters := make([]async.IPromise, 50)
+			fwaiters := make([]async.IFuture, 50)
+			p := async.NewAsyncPool("Hundred", 1024, 10)
 
-		ptask := func() {
-			time.Sleep(time.Second * 2)
-		}
-
-		ftask := func() interface{} {
-			time.Sleep(time.Second * 1)
-			return 5
-		}
-
-		for i := 0; i < 50; i++ {
-			pwaiters = append(pwaiters, p.Schedule(ptask))
-		}
-
-		for i := 0; i < 50; i++ {
-			fwaiters = append(fwaiters, p.ScheduleComputable(ftask))
-		}
-
-		for _, w := range pwaiters {
-			if w != nil {
-				w.Wait()
+			ptask := func() {
+				time.Sleep(time.Second * 2)
 			}
-		}
 
-		for _, w := range fwaiters {
-			if w != nil {
-				w.Wait()
+			ftask := func() interface{} {
+				time.Sleep(time.Second * 1)
+				return 5
 			}
-		}
 
-		p.Stop()
+			for i := 0; i < 50; i++ {
+				pwaiters = append(pwaiters, p.Schedule(ptask))
+			}
+
+			for i := 0; i < 50; i++ {
+				fwaiters = append(fwaiters, p.ScheduleComputable(ftask))
+			}
+
+			for _, w := range pwaiters {
+				if w != nil {
+					w.Wait()
+				}
+			}
+
+			for _, w := range fwaiters {
+				if w != nil {
+					w.Wait()
+				}
+			}
+
+			p.Stop()
+		})
+	*/
+	performance.MeasureWithLog("jobPool", func() {
+		jobPool := timed.NewJobPool("t", 1024)
+		jobPool.ScheduleTimeoutJob(func() {
+			fmt.Println("after 3 seconds")
+		}, time.Second*3)
+		uuid := jobPool.ScheduleAsyncIntervalJob(func() {
+			fmt.Println("haha")
+		}, time.Second*1)
+		time.Sleep(time.Second * 5)
+		jobPool.CancelJob(uuid)
+		time.Sleep(time.Second * 1)
+		jobPool.ScheduleAsyncTimeoutJob(func() {
+			fmt.Printf("Remember me!?\n")
+		}, time.Second*2)
 	})
+	timed.RunTimeout(func() {
+		fmt.Println("global pool test")
+	}, time.Second*2)
 }
 
 func buildQueryFilter(filterMap map[string]interface{}) interface{} {

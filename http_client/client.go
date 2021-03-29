@@ -45,13 +45,13 @@ func httpError(code int, message string) *HTTPError {
 }
 
 type HTTPRequest struct {
-	id              string
-	url             string
-	method          string
-	retry           int
-	authFree        bool
-	customizeHeader map[string]string
-	awaitable       chan *HTTPResponse
+	Id              string
+	Url             string
+	Method          string
+	Retry           int
+	AuthFree        bool
+	CustomizeHeader map[string]string
+	Awaitable       chan *HTTPResponse
 }
 
 type HTTPRequestBuilder struct {
@@ -69,42 +69,42 @@ type IHTTPRequestBuilder interface {
 }
 
 func (b *HTTPRequestBuilder) Id(id string) *HTTPRequestBuilder {
-	b.request.id = id
+	b.request.Id = id
 	return b
 }
 
 func (b *HTTPRequestBuilder) Url(url string) *HTTPRequestBuilder {
-	b.request.url = url
+	b.request.Url = url
 	return b
 }
 
 func (b *HTTPRequestBuilder) Method(method string) *HTTPRequestBuilder {
-	b.request.method = method
+	b.request.Method = method
 	return b
 }
 
 func (b *HTTPRequestBuilder) Retry(retry int) *HTTPRequestBuilder {
-	b.request.retry = retry
+	b.request.Retry = retry
 	return b
 }
 
 func (b *HTTPRequestBuilder) AuthFree(authFree bool) *HTTPRequestBuilder {
-	b.request.authFree = authFree
+	b.request.AuthFree = authFree
 	return b
 }
 
 func (b *HTTPRequestBuilder) CustomizeHeader(customizeHeader map[string]string) *HTTPRequestBuilder {
-	if b.request.customizeHeader == nil {
-		b.request.customizeHeader = make(map[string]string)
+	if b.request.CustomizeHeader == nil {
+		b.request.CustomizeHeader = make(map[string]string)
 	}
 	for key, val := range customizeHeader {
-		b.request.customizeHeader[key] = val
+		b.request.CustomizeHeader[key] = val
 	}
 	return b
 }
 
 func (b *HTTPRequestBuilder) Build() *HTTPRequest {
-	b.request.id = strconv.FormatInt(randomGenerator.Int63n(time.Now().Unix()), 16)
+	b.request.Id = strconv.FormatInt(randomGenerator.Int63n(time.Now().Unix()), 16)
 	return b.request
 }
 
@@ -143,14 +143,14 @@ func toHTTPResponse(resp *http.Response) (*HTTPResponse, error) {
 type requestFilter func(request *HTTPRequest) bool
 
 func defaultRequestFilterFunc(request *HTTPRequest) bool {
-	if request.url == "" {
+	if request.Url == "" {
 		return false
 	}
-	if request.method == "" {
+	if request.Method == "" {
 		return false
 	}
-	if request.awaitable == nil {
-		request.awaitable = make(chan *HTTPResponse)
+	if request.Awaitable == nil {
+		request.Awaitable = make(chan *HTTPResponse)
 	}
 	return true
 }
@@ -252,22 +252,22 @@ func (c *HTTPClient) start() {
 				// idx := strconv.FormatInt(randomGenerator.Int63n(time.Now().Unix()), 16)
 				for !c.hasTerminated() {
 					req := c.requestQueue.dequeue()
-					awaitable_chan := req.awaitable
+					awaitableChan := req.Awaitable
 					rawRequest, toRawRequestErr := c.toRawRequest(req)
 					if toRawRequestErr != nil {
-						awaitable_chan <- newErrorHTTPResponse(-1, toRawRequestErr.Error())
+						awaitableChan <- newErrorHTTPResponse(-1, toRawRequestErr.Error())
 						continue
 					}
-					// fmt.Printf("client %s on request(%s) %+v\n", idx, req.id, rawRequest)
+					// fmt.Printf("client %s on request(%s) %+v\n", idx, req.Id, rawRequest)
 					resp, err := client.Do(rawRequest)
 					if err != nil {
-						awaitable_chan <- newErrorHTTPResponse(-1, err.Error())
+						awaitableChan <- newErrorHTTPResponse(-1, err.Error())
 					} else {
 						httpResp, transformErr := toHTTPResponse(resp)
 						if transformErr != nil {
-							awaitable_chan <- newErrorHTTPResponse(-1, err.Error())
+							awaitableChan <- newErrorHTTPResponse(-1, err.Error())
 						} else {
-							awaitable_chan <- httpResp
+							awaitableChan <- httpResp
 						}
 					}
 					time.Sleep(time.Duration(c.delayTime) * time.Millisecond)
@@ -290,7 +290,7 @@ func (c *HTTPClient) request(request *HTTPRequest) chan *HTTPResponse {
 		c.start()
 	}
 	c.requestQueue.enqueue(request)
-	return request.awaitable
+	return request.Awaitable
 }
 
 func (c *HTTPClient) Request(request *HTTPRequest) *HTTPResponse {
@@ -340,12 +340,12 @@ func (c *HTTPClient) toRawRequest(request *HTTPRequest) (*http.Request, error) {
 	for _, processor := range c.requestProcessors {
 		request = processor(request)
 	}
-	rawRequest, err := http.NewRequest(request.method, c.BaseUrl+request.url, nil)
+	rawRequest, err := http.NewRequest(request.Method, c.BaseUrl+request.Url, nil)
 	if err != nil {
 		return nil, err
 	}
-	if request.customizeHeader != nil {
-		for key, val := range request.customizeHeader {
+	if request.CustomizeHeader != nil {
+		for key, val := range request.CustomizeHeader {
 			rawRequest.Header.Set(key, val)
 		}
 	}
@@ -375,7 +375,7 @@ func newHTTPClient(timeout int) *http.Client {
 
 // Tests
 func copyOne(request *HTTPRequest) *HTTPRequest {
-	cpy := NewHTTPRequestBuilder().Url(request.url).Method(request.method).CustomizeHeader(request.customizeHeader).Build()
+	cpy := NewHTTPRequestBuilder().Url(request.Url).Method(request.Method).CustomizeHeader(request.CustomizeHeader).Build()
 	return cpy
 }
 
@@ -408,11 +408,11 @@ func buildRCRequestWithToken(url string, method string, token string) *HTTPReque
 	return NewHTTPRequestBuilder().Url(url).Method(method).CustomizeHeader(customizeHeader).Build()
 }
 
-var baseFlag = flag.String("b", "https://api-xmnup.lab.nordigy.ru", "need to specify the base url for the client")
+var baseFlag = flag.String("b", "https://api-xmnup.lab.nordigy.ru", "need to specify the base Url for the client")
 var cFlag = flag.Int("c", 10, "need to specify the number of concurrent running clients")
 var delayTimeFlag = flag.Int("d", 0, "need to specify the delay time for each request")
-var urlFlag = flag.String("u", "", "need to specify the url for the request")
-var methodFlag = flag.String("m", "GET", "need to specify the method for the request")
+var urlFlag = flag.String("u", "", "need to specify the Url for the request")
+var methodFlag = flag.String("m", "GET", "need to specify the Method for the request")
 var tokenFlag = flag.String("t", "", "need to specify the token for the request")
 var nFlag = flag.Int("n", 10, "need to specify how many requests do you want to send")
 

@@ -11,8 +11,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 
-	"mongoClient/async"
+	// "mongoClient/async"
 	"mongoClient/deepcopy"
+	"mongoClient/http"
 	"mongoClient/performance"
 	"mongoClient/timed"
 )
@@ -178,73 +179,75 @@ func main() {
 		}(false)
 	}()
 
-	dur := performance.Measure(func() {
-		fmt.Println("promise and future test")
-		p := async.NewAsyncPool("0", 10, 4)
-		p.Start()
-		p0 := p.Schedule(func() {
-			time.Sleep(time.Second * 2)
-			fmt.Println("2 seconds done")
+	/*
+		dur := performance.Measure(func() {
+			fmt.Println("promise and future test")
+			p := async.NewAsyncPool("0", 10, 4)
+			p.Start()
+			p0 := p.Schedule(func() {
+				time.Sleep(time.Second * 2)
+				fmt.Println("2 seconds done")
+			})
+
+			p1 := p.Schedule(func() {
+				time.Sleep(time.Second * 1)
+				fmt.Println("1 seconds done")
+			})
+
+			go func() {
+				p0.Wait()
+				fmt.Println("f1")
+			}()
+
+			go func() {
+				p0.Wait()
+				fmt.Println("f2")
+			}()
+
+			go func() {
+				time.Sleep(time.Millisecond * 1999)
+				p0.Wait()
+				fmt.Println("f wait 1.9 seconds")
+			}()
+
+			p0.Wait()
+			fmt.Println("p0 waiting done")
+			p1.Wait()
+			fmt.Println("p1 waiting done")
+
+			go func() {
+				p0.Wait()
+				fmt.Println("fx1")
+			}()
+
+			go func() {
+				p0.Wait()
+				fmt.Println("fx2")
+			}()
+
+			f0 := p.ScheduleComputable(func() interface{} {
+				time.Sleep(1 * time.Second)
+				return 1
+			})
+
+			go func() {
+				fmt.Println("f00: ", f0.Get())
+			}()
+
+			go func() {
+				fmt.Println("f01: ", f0.Get())
+			}()
+
+			go func() {
+				time.Sleep(999 * time.Millisecond)
+				fmt.Println("f01 999: ", f0.Get())
+			}()
+
+			fmt.Println("f0 result: ", f0.Get())
+			p.Stop()
 		})
-
-		p1 := p.Schedule(func() {
-			time.Sleep(time.Second * 1)
-			fmt.Println("1 seconds done")
-		})
-
-		go func() {
-			p0.Wait()
-			fmt.Println("f1")
-		}()
-
-		go func() {
-			p0.Wait()
-			fmt.Println("f2")
-		}()
-
-		go func() {
-			time.Sleep(time.Millisecond * 1999)
-			p0.Wait()
-			fmt.Println("f wait 1.9 seconds")
-		}()
-
-		p0.Wait()
-		fmt.Println("p0 waiting done")
-		p1.Wait()
-		fmt.Println("p1 waiting done")
-
-		go func() {
-			p0.Wait()
-			fmt.Println("fx1")
-		}()
-
-		go func() {
-			p0.Wait()
-			fmt.Println("fx2")
-		}()
-
-		f0 := p.ScheduleComputable(func() interface{} {
-			time.Sleep(1 * time.Second)
-			return 1
-		})
-
-		go func() {
-			fmt.Println("f00: ", f0.Get())
-		}()
-
-		go func() {
-			fmt.Println("f01: ", f0.Get())
-		}()
-
-		go func() {
-			time.Sleep(999 * time.Millisecond)
-			fmt.Println("f01 999: ", f0.Get())
-		}()
-
-		fmt.Println("f0 result: ", f0.Get())
-		p.Stop()
-	})
-	fmt.Println("task duration: ", dur)
+		fmt.Println("task duration: ", dur)
+	*/
 	/*
 		dur = performance.MeasureWithLog("100 async tasks", func() {
 			pwaiters := make([]async.IPromise, 50)
@@ -283,24 +286,35 @@ func main() {
 			p.Stop()
 		})
 	*/
-	performance.MeasureWithLog("jobPool", func() {
-		jobPool := timed.NewJobPool("t", 1)
-		jobPool.ScheduleTimeoutJob(func() {
-			fmt.Println("after 3 seconds")
-		}, time.Second*3)
-		uuid := jobPool.ScheduleAsyncIntervalJob(func() {
-			fmt.Println("haha")
-		}, time.Second*1)
-		time.Sleep(time.Second * 5)
-		jobPool.ScheduleAsyncTimeoutJob(func() {
-			fmt.Printf("Remember me!?\n")
+	func(run bool) {
+		if !run {
+			return
+		}
+		performance.MeasureWithLog("jobPool", func() {
+			jobPool := timed.NewJobPool("t", 1)
+			jobPool.ScheduleTimeoutJob(func() {
+				fmt.Println("after 3 seconds")
+			}, time.Second*3)
+			uuid := jobPool.ScheduleAsyncIntervalJob(func() {
+				fmt.Println("haha")
+			}, time.Second*1)
+			time.Sleep(time.Second * 5)
+			jobPool.ScheduleAsyncTimeoutJob(func() {
+				fmt.Printf("Remember me!?\n")
+			}, time.Second*2)
+			jobPool.CancelJob(uuid)
+			time.Sleep(time.Second * 1)
+		})
+		timed.RunTimeout(func() {
+			fmt.Println("global pool test")
 		}, time.Second*2)
-		jobPool.CancelJob(uuid)
-		time.Sleep(time.Second * 1)
-	})
-	timed.RunTimeout(func() {
-		fmt.Println("global pool test")
-	}, time.Second*2)
+	}(false)
+
+	httpPool := http.NewPool("test", 4, 128, 30)
+	request, _ := http.NewRequestBuilder().URL("http://baidu.com").Build()
+	tracer, _ := httpPool.Request(request)
+	response := tracer.Response()
+	fmt.Println(response)
 }
 
 func buildQueryFilter(filterMap map[string]interface{}) interface{} {

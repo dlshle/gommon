@@ -3,6 +3,7 @@ package http
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -241,16 +242,33 @@ func (b *RequestBuilder) StringBody(body string) *RequestBuilder {
 }
 
 // Awaitable Response
+type Response struct {
+	success bool
+	code    int
+	header  http.Header // usage just like map, can for each kv or ["headerKey"] gives an array of strings
+	body    string
+}
+
+func fromRawResponse(resp *http.Response) (*Response, error) {
+	defer resp.Body.Close()
+	statusCode := resp.StatusCode
+	body, err := ioutil.ReadAll(resp.Body)
+	var bodyString string
+	if err != nil {
+		bodyString = err.Error()
+	} else {
+		bodyString = string(body[:])
+	}
+	return &Response{statusCode >= 200 && statusCode <= 300, statusCode, resp.Header, bodyString}, err
+}
+
 // Invalid response builder
-func invalidResponse(status string, statusCode int) *http.Response {
-	response := &http.Response{}
-	response.Status = status
-	response.StatusCode = statusCode
-	return response
+func invalidResponse(status string, statusCode int) *Response {
+	return &Response{false, statusCode, nil, status}
 }
 
 type AwaitableResponse struct {
-	response *http.Response
+	response *Response
 	cond     *sync.Cond
 	isClosed atomic.Value
 }
@@ -276,12 +294,12 @@ func (ar *AwaitableResponse) Wait() {
 	}
 }
 
-func (ar *AwaitableResponse) Get() *http.Response {
+func (ar *AwaitableResponse) Get() *Response {
 	ar.Wait()
 	return ar.response
 }
 
-func (ar *AwaitableResponse) resolve(resp *http.Response) {
+func (ar *AwaitableResponse) resolve(resp *Response) {
 	if !ar.isClosed.Load().(bool) {
 		ar.response = resp
 		ar.isClosed.Store(true)
@@ -291,7 +309,7 @@ func (ar *AwaitableResponse) resolve(resp *http.Response) {
 
 // Trackable Request
 // canceled response
-func cancelledResponse() *http.Response {
+func cancelledResponse() *Response {
 	return invalidResponse("Cancelled", -4)
 }
 
@@ -308,7 +326,7 @@ type ITrackableRequest interface {
 	Status() int
 	Update(request *http.Request) error
 	Cancel() error
-	Response() *http.Response
+	Response() *Response
 	getRequest() *http.Request
 	setStatus(status int)
 }
@@ -367,7 +385,7 @@ func (tr *TrackableRequest) Cancel() error {
 	return NewClientError("Unable to update request due to "+requestStatusErrorStringMap[status], requestStatusErrorCodeMap[status])
 }
 
-func (tr *TrackableRequest) Response() *http.Response {
+func (tr *TrackableRequest) Response() *Response {
 	return tr.response.Get()
 }
 
@@ -392,7 +410,9 @@ type ClientPool struct {
 
 type IClientPool interface {
 	Id() string
+	request(request *http.Request) (*TrackableRequest, error)
 	Request(request *http.Request) (*TrackableRequest, error)
+	RequestAsync(request *http.Request) (*TrackableRequest, error)
 	Status() int
 	setStatus(status int)
 	start()
@@ -412,7 +432,7 @@ func newHTTPClient(timeout int) *http.Client {
 	return &http.Client{Timeout: time.Second * time.Duration(timeout)}
 }
 
-func NewPool(id string, numClients, maxQueueSize, timeoutInSec int) IClientPool {
+func NewPool(id string, numClients, maxQueueSize, timeoutInSec int) *ClientPool {
 	numClients = numWithinRange(numClients, 1, 2048)
 	maxQueueSize = numWithinRange(maxQueueSize, 1, 4096)
 	rawClients := make([]*http.Client, numClients)
@@ -448,11 +468,15 @@ func (c *ClientPool) start() {
 					}
 					request.setStatus(RequestStatusInProgress)
 					c.logger.Printf("%s client has acquired request(%s, %d) with rawRequest %+v.\n", loggerTag, request.id, request.Status(), request.getRequest())
-					response, err := client.Do(request.getRequest())
-					if err != nil && response == nil {
+					rawResponse, err := client.Do(request.getRequest())
+					if err != nil && rawResponse == nil {
 						c.logger.Printf("%s request failed due to %s, will resolve it with invalid response(-1).\n", loggerTag, err.Error())
 						request.response.resolve(invalidResponse(fmt.Sprintf("Failed(%s)", err.Error()), -1))
 					} else {
+						response, err := fromRawResponse(rawResponse)
+						if err != nil {
+							c.logger.Printf("%s unable to parse response body of %+v.\n", loggerTag, rawResponse)
+						}
 						request.response.resolve(response)
 						c.logger.Printf("%s request(%s) has been resolved. Response: %+v.\n", loggerTag, request.id, response)
 					}
@@ -488,6 +512,7 @@ func (c *ClientPool) Status() int {
 	return c.status
 }
 
+// TODO this is actually request
 func (c *ClientPool) Request(request *http.Request) (*TrackableRequest, error) {
 	loggerTag := "[Request]"
 	c.logger.Printf("%s New request received: %+v\n", loggerTag, request)
@@ -502,3 +527,5 @@ func (c *ClientPool) Request(request *http.Request) (*TrackableRequest, error) {
 	c.queue <- trackableRequest
 	return trackableRequest, nil
 }
+
+// TODO need to implement Request(sync) and the async one

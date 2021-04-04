@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"mongoClient/http"
 	"reflect"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 
 	// "mongoClient/async"
 	"mongoClient/deepcopy"
-	"mongoClient/http"
 	"mongoClient/performance"
 	"mongoClient/timed"
 )
@@ -310,11 +310,41 @@ func main() {
 		}, time.Second*2)
 	}(false)
 
-	httpPool := http.NewPool("test", 4, 128, 30)
-	request, _ := http.NewRequestBuilder().URL("http://baidu.com").Build()
-	tracer, _ := httpPool.Request(request)
-	response := tracer.Response()
-	fmt.Println(response)
+	func(run bool) {
+		performance.MeasureWithLog("manyRequests", func() {
+			request, _ := http.NewRequestBuilder().URL("https://www.baidu.com/home/msg/data/personalcontent?num=8&indextype=manht&_req_seqid=2361154953&asyn=1&t=1617529770282&sid=").Build()
+			trArr := make([]*http.TrackableRequest, 1024)
+			for i := 0; i < 1024; i++ {
+				tr, _ := http.DoRequestAsync(request)
+				trArr = append(trArr, tr)
+			}
+			for _, tr := range trArr {
+				if tr != nil {
+					tr.Response()
+					fmt.Println(tr.Id() + " done")
+				}
+			}
+		})
+	}(false)
+	runWith(true, func() {
+		performance.MeasureWithLog("batchRequests", func() {
+			request, _ := http.NewRequestBuilder().URL("https://www.baidu.com/home/msg/data/personalcontent?num=8&indextype=manht&_req_seqid=2361154953&asyn=1&t=1617529770282&sid=").Build()
+			requests := make([]*http.Request, 100)
+			for i, _ := range requests {
+				requests[i] = request
+			}
+			responses := http.DoBatchRequest(requests)
+			for _, resp := range responses {
+				fmt.Println(resp)
+			}
+		})
+	})
+}
+
+func runWith(run bool, executor func()) {
+	if run {
+		executor()
+	}
 }
 
 func buildQueryFilter(filterMap map[string]interface{}) interface{} {

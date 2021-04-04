@@ -9,6 +9,7 @@ import (
 	"net/http"
 	urlpkg "net/url"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,9 @@ import (
 )
 
 // Globals
+
+// TODO, need a customized request capable of retry
+type Request = http.Request
 
 // logger
 var globalLogger = log.New(os.Stdout, "[NetworkClient]", log.Ldate|log.Ltime|log.Lshortfile)
@@ -51,6 +55,8 @@ func initRequestStatusErrorMaps() {
 
 func init() {
 	initRequestStatusErrorMaps()
+	initPoolStatusStringMap()
+	initGlobalPool()
 }
 
 // Errors
@@ -399,6 +405,17 @@ const (
 	PoolStatusStopped     = 4
 )
 
+var poolStatusStringMap map[int]string
+
+func initPoolStatusStringMap() {
+	poolStatusStringMap = make(map[int]string)
+	poolStatusStringMap[PoolStatusIdle] = "Idle"
+	poolStatusStringMap[PoolStatusStarting] = "Starting"
+	poolStatusStringMap[PoolStatusRunning] = "Running"
+	poolStatusStringMap[PoolStatusTerminating] = "Terminating"
+	poolStatusStringMap[PoolStatusStopped] = "Stopped"
+}
+
 type ClientPool struct {
 	id      string
 	clients []*http.Client
@@ -411,12 +428,16 @@ type ClientPool struct {
 type IClientPool interface {
 	Id() string
 	request(request *http.Request) (*TrackableRequest, error)
-	Request(request *http.Request) (*TrackableRequest, error)
+	Request(request *http.Request) (*Response, error)
 	RequestAsync(request *http.Request) (*TrackableRequest, error)
+	batchRequest(requests []*http.Request) []*TrackableRequest
+	BatchRequest(requests []*http.Request) []*Response
+	// or channel?
+	BatchRequestAsync(requests []*http.Request) []*TrackableRequest
 	Status() int
 	setStatus(status int)
 	start()
-	stop()
+	Stop()
 }
 
 func numWithinRange(value, min, max int) int {
@@ -439,7 +460,7 @@ func NewPool(id string, numClients, maxQueueSize, timeoutInSec int) *ClientPool 
 	for i := 0; i < numClients; i++ {
 		rawClients[i] = newHTTPClient(timeoutInSec)
 	}
-	return &ClientPool{
+	pool := &ClientPool{
 		id,
 		rawClients,
 		make(chan *TrackableRequest, maxQueueSize),
@@ -447,41 +468,55 @@ func NewPool(id string, numClients, maxQueueSize, timeoutInSec int) *ClientPool 
 		PoolStatusIdle,
 		new(sync.RWMutex),
 	}
+	pool.start()
+	return pool
 }
 
 func (c *ClientPool) start() {
 	if c.Status() != PoolStatusIdle {
 		return
 	}
+	c.logger.Printf("Starting the client...\n")
 	go func() {
 		var wg sync.WaitGroup
 		c.setStatus(PoolStatusStarting)
 		for i, clientItr := range c.clients {
 			wg.Add(1)
 			go func(id int, client *http.Client) {
+				numRequests := 0
+				numSuccess := 0
+				numFailed := 0
 				loggerTag := fmt.Sprintf("[Client-%d]", id)
 				c.logger.Printf("%s client has started.\n", loggerTag)
-				for c.Status() != PoolStatusTerminating {
+				for c.Status() == PoolStatusRunning {
 					request := <-c.queue
-					if request.Status() != RequestStatusWaiting {
-						c.logger.Printf("%s skip request(%s) due to invalid status(%d).\n", loggerTag, request.Id(), request.Status())
-					}
-					request.setStatus(RequestStatusInProgress)
-					c.logger.Printf("%s client has acquired request(%s, %d) with rawRequest %+v.\n", loggerTag, request.id, request.Status(), request.getRequest())
-					rawResponse, err := client.Do(request.getRequest())
-					if err != nil && rawResponse == nil {
-						c.logger.Printf("%s request failed due to %s, will resolve it with invalid response(-1).\n", loggerTag, err.Error())
-						request.response.resolve(invalidResponse(fmt.Sprintf("Failed(%s)", err.Error()), -1))
-					} else {
-						response, err := fromRawResponse(rawResponse)
-						if err != nil {
-							c.logger.Printf("%s unable to parse response body of %+v.\n", loggerTag, rawResponse)
+					if request != nil {
+						if request.Status() != RequestStatusWaiting {
+							c.logger.Printf("%s skip request(%s) due to invalid status(%d).\n", loggerTag, request.Id(), request.Status())
 						}
-						request.response.resolve(response)
-						c.logger.Printf("%s request(%s) has been resolved. Response: %+v.\n", loggerTag, request.id, response)
+						numRequests++
+						request.setStatus(RequestStatusInProgress)
+						c.logger.Printf("%s client has acquired request(%s, %d) with rawRequest %+v.\n", loggerTag, request.id, request.Status(), request.getRequest())
+						rawResponse, err := client.Do(request.getRequest())
+						if err != nil && rawResponse == nil {
+							c.logger.Printf("%s request failed due to %s, will resolve it with invalid response(-1).\n", loggerTag, err.Error())
+							request.response.resolve(invalidResponse(fmt.Sprintf("Failed(%s)", err.Error()), -1))
+							numFailed++
+						} else {
+							response, err := fromRawResponse(rawResponse)
+							if err != nil {
+								c.logger.Printf("%s unable to parse response body of %+v.\n", loggerTag, rawResponse)
+								numSuccess++
+							} else {
+								numFailed++
+							}
+							request.response.resolve(response)
+							c.logger.Printf("%s request(%s) has been resolved. Response: %+v.\n", loggerTag, request.id, response)
+						}
 					}
 				}
 				c.logger.Printf("%s client has stopped.\n", loggerTag)
+				c.logger.Printf("%s client performance: [%d, %d, %d].\n", loggerTag, numRequests, numSuccess, numFailed)
 				wg.Done()
 			}(i, clientItr)
 		}
@@ -492,14 +527,19 @@ func (c *ClientPool) start() {
 	}()
 }
 
-func (c *ClientPool) stop() {
+func (c *ClientPool) Stop() {
 	c.setStatus(PoolStatusTerminating)
+	close(c.queue)
+	for c.Status() != PoolStatusStopped {
+	}
 }
 
 func (c *ClientPool) setStatus(status int) {
 	c.rwMutex.Lock()
 	defer c.rwMutex.Unlock()
+	oldStatus := c.status
 	c.status = status
+	c.logger.Printf("Switched pool status from %s to %s\n", poolStatusStringMap[oldStatus], poolStatusStringMap[status])
 }
 
 func (c *ClientPool) Id() string {
@@ -512,20 +552,86 @@ func (c *ClientPool) Status() int {
 	return c.status
 }
 
-// TODO this is actually request
-func (c *ClientPool) Request(request *http.Request) (*TrackableRequest, error) {
+func (c *ClientPool) request(request *http.Request) (*TrackableRequest, error) {
 	loggerTag := "[Request]"
-	c.logger.Printf("%s New request received: %+v\n", loggerTag, request)
+	c.logger.Printf("%s New request received: %+v\nCurrent queue size: %d\n", loggerTag, request, len(c.queue))
 	err := validateRequest(request)
 	if err != nil {
 		c.logger.Printf("%s Request validation failed due to %s\n", loggerTag, err.Error())
 		return nil, err
 	}
 	trackableRequest := NewTrackableRequest(request)
-	c.start()
 	trackableRequest.setStatus(RequestStatusWaiting)
 	c.queue <- trackableRequest
 	return trackableRequest, nil
 }
 
-// TODO need to implement Request(sync) and the async one
+func (c *ClientPool) Request(request *http.Request) (*Response, error) {
+	tr, err := c.request(request)
+	if err != nil {
+		return nil, err
+	}
+	return tr.Response(), nil
+}
+
+func (c *ClientPool) RequestAsync(request *http.Request) (*TrackableRequest, error) {
+	return c.request(request)
+}
+
+func (c *ClientPool) batchRequest(requests []*http.Request) []*TrackableRequest {
+	res := make([]*TrackableRequest, len(requests))
+	for i, req := range requests {
+		tr, err := c.request(req)
+		if err != nil {
+			res[i] = nil
+		} else {
+			res[i] = tr
+		}
+	}
+	return res
+}
+
+func (c *ClientPool) BatchRequest(requests []*http.Request) []*Response {
+	responses := make([]*Response, len(requests))
+	trs := c.batchRequest(requests)
+	for i, tr := range trs {
+		if tr == nil {
+			responses[i] = nil
+		} else {
+			responses[i] = tr.Response()
+		}
+	}
+	return responses
+}
+
+func (c *ClientPool) BatchRequestAsync(requests []*http.Request) []*TrackableRequest {
+	return c.batchRequest(requests)
+}
+
+// global client
+var globalPool *ClientPool
+
+func initGlobalPool() {
+	numCpu := runtime.NumCPU()
+	globalPool = NewPool("global", numCpu, numCpu*16, 30)
+}
+
+func DoRequest(request *http.Request) (*Response, error) {
+	return globalPool.Request(request)
+}
+
+func DoRequestAsync(request *http.Request) (*TrackableRequest, error) {
+	return globalPool.RequestAsync(request)
+}
+
+func DoBatchRequest(requests []*http.Request) []*Response {
+	return globalPool.BatchRequest(requests)
+}
+
+func DoBatchRequestAsync(requests []*http.Request) []*TrackableRequest {
+	return globalPool.BatchRequestAsync(requests)
+}
+
+func Status() int {
+	return globalPool.Status()
+}

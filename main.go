@@ -3,19 +3,28 @@ package main
 import (
 	"context"
 	"fmt"
+	"mongoClient/async"
 	"mongoClient/http"
 	"reflect"
 	"time"
 
+	// mongo
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 
+	// mysql
+	"database/sql"
+	_ "github.com/go-sql-driver/mysql"
+
 	// "mongoClient/async"
 	"mongoClient/deepcopy"
+	"mongoClient/mysql"
 	"mongoClient/performance"
 	"mongoClient/timed"
+	// orm
+	"github.com/astaxie/beego/orm"
 )
 
 type Unmarshaler interface {
@@ -52,7 +61,10 @@ func (user *User) UnmarshalBSON(b []byte) error {
 */
 
 func main() {
-	func() {
+	func(run bool) {
+		if !run {
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://admin:19950416@39.96.92.228:27017/test?authSource=admin"))
@@ -177,9 +189,8 @@ func main() {
 			}
 			fmt.Println("collection.InsertOne: ", insertOneResult)
 		}(false)
-	}()
-
-	/*
+	}(false)
+	runWith(false, func() {
 		dur := performance.Measure(func() {
 			fmt.Println("promise and future test")
 			p := async.NewAsyncPool("0", 10, 4)
@@ -247,8 +258,6 @@ func main() {
 			p.Stop()
 		})
 		fmt.Println("task duration: ", dur)
-	*/
-	/*
 		dur = performance.MeasureWithLog("100 async tasks", func() {
 			pwaiters := make([]async.IPromise, 50)
 			fwaiters := make([]async.IFuture, 50)
@@ -285,7 +294,8 @@ func main() {
 
 			p.Stop()
 		})
-	*/
+	})
+
 	func(run bool) {
 		if !run {
 			return
@@ -311,6 +321,9 @@ func main() {
 	}(false)
 
 	func(run bool) {
+		if !run {
+			return
+		}
 		performance.MeasureWithLog("manyRequests", func() {
 			request, _ := http.NewRequestBuilder().URL("https://www.baidu.com/home/msg/data/personalcontent?num=8&indextype=manht&_req_seqid=2361154953&asyn=1&t=1617529770282&sid=").Build()
 			trArr := make([]*http.TrackableRequest, 1024)
@@ -326,7 +339,7 @@ func main() {
 			}
 		})
 	}(false)
-	runWith(true, func() {
+	runWith(false, func() {
 		performance.MeasureWithLog("batchRequests", func() {
 			request, _ := http.NewRequestBuilder().URL("https://www.baidu.com/home/msg/data/personalcontent?num=8&indextype=manht&_req_seqid=2361154953&asyn=1&t=1617529770282&sid=").Build()
 			requests := make([]*http.Request, 100)
@@ -339,12 +352,149 @@ func main() {
 			}
 		})
 	})
+	runWith(false, func() {
+		fmt.Println("=======================================================")
+		db, err := sql.Open("mysql", "root:Lxr000518!@tcp(bj-cdb-l8bcf010.sql.tencentcdb.com:60856)/test?charset=utf8")
+		if err != nil {
+			fmt.Println("ERROR: ", err)
+			return
+		}
+		defer db.Close()
+		err = db.Ping()
+		if err != nil {
+			fmt.Println("Connection failed.")
+			return
+		}
+		// email fn ln addr desc
+		/*
+			usrs:=[2][5] string{{"t1@1.1","ketty","lasty","addr1","desc1"},{"t2@2.2","rosee","last2","addr2","desc2"}}
+			stmt,_:=db.Prepare("insert into USERS values (?,?,?,?,?)")
+			for _,s:=range usrs{
+				res, err := stmt.Exec(s[0],s[1],s[2],s[3],s[4])
+				if err != nil {
+					fmt.Println("ERROR: ", err)
+				} else {
+					fmt.Println("result: ", res)
+				}
+			}
+		*/
+		rows, _ := db.Query("select * from USERS") //获取所有数据
+
+		var email, fn, ln, addr, desc string
+		var age int
+		for rows.Next() { //循环显示所有的数据
+			rows.Scan(&email, &fn, &ln, &addr, &desc, &age)
+			fmt.Printf("%s,%s,%s,%s,%s,%d\n", email, fn, ln, addr, desc, age)
+		}
+	})
+
+	runWith(false, func() {
+		type User struct {
+			Id          int64
+			Email       string
+			FirstName   string
+			LastName    string
+			Address     string
+			Description string
+		}
+
+		//1.连接数据库
+		orm.RegisterDataBase("default", "mysql", "root:Lxr000518!@tcp(bj-cdb-l8bcf010.sql.tencentcdb.com:60856)/test")
+
+		//2.注册表
+		orm.RegisterModel(new(User))
+
+		//3.生成表
+		orm.RunSyncdb("default", false, true)
+
+		o := orm.NewOrm()
+
+		// --- INSERT
+		newUser := &User{}
+		newUser.FirstName = "Daniel"
+		newUser.LastName = "Li"
+		newUser.Address = "5003 176th ST SW APT E, Lynnwood, WA 98037"
+		newUser.Description = "First record here of the user table."
+		/*
+			id, err := o.Insert(newUser)
+			if err != nil {
+				fmt.Println("Insert failed ", err)
+				return
+			}
+			fmt.Println("inserted id: ", id)
+		*/
+
+		// --- READ
+		var user User
+
+		user.FirstName = "Daniel"
+
+		err := o.Read(&user, "first_name")
+
+		if err != nil {
+			fmt.Println("Error: ", err)
+			return
+		}
+		fmt.Println(user)
+	})
+
+	runWith(true, func() {
+		type User struct {
+			Id          int64 `orm:"pk;auto"`
+			Email       string
+			FirstName   string
+			LastName    string
+			Address     string
+			Description string
+		}
+
+		m, err := mysql.NewSQLManager("bj-cdb-l8bcf010.sql.tencentcdb.com:60856", "root", "Lxr000518!", "test")
+		if err != nil {
+			fmt.Println("err init manager: ", err)
+			return
+		}
+		m.RegisterORM(new(User))
+		err = m.Start()
+		if err != nil {
+			fmt.Println("err start manager: ", err)
+			return
+		}
+		var queryUser User
+		queryUser.Id = 2
+		fmt.Println(m.Read(&queryUser))
+
+		/*
+			manyUsers := []User{
+				{FirstName: "a", LastName: "b"},
+				{FirstName: "2", LastName: "2"},
+				{FirstName: "v", LastName: "3"},
+				{FirstName: "x", LastName: "4"},
+				{FirstName: "z", LastName: "5"},
+				{FirstName: "r", LastName: "6"},
+				{FirstName: "e", LastName: "7"},
+			}
+			err = m.InsertMany(len(manyUsers), manyUsers)
+			if err != nil {
+				fmt.Println("insert many error: ", err)
+				return
+			}
+		*/
+		var users []User
+		_, err = m.All(new(User), &users)
+		if err != nil {
+			fmt.Println("all error: ", err)
+			return
+		}
+		fmt.Println(users)
+	})
+
 }
 
 func runWith(run bool, executor func()) {
-	if run {
-		executor()
+	if !run {
+		return
 	}
+	executor()
 }
 
 func buildQueryFilter(filterMap map[string]interface{}) interface{} {

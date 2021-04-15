@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"mongoClient/async"
-	"mongoClient/http"
+	"gommon/async"
+	"gommon/http"
 	"reflect"
 	"time"
 
@@ -18,11 +18,11 @@ import (
 	"database/sql"
 	_ "github.com/go-sql-driver/mysql"
 
-	// "mongoClient/async"
-	"mongoClient/deepcopy"
-	"mongoClient/mysql"
-	"mongoClient/performance"
-	"mongoClient/timed"
+	// "gommon/async"
+	"gommon/deepcopy"
+	"gommon/mysql"
+	"gommon/performance"
+	"gommon/timed"
 	// orm
 	"github.com/astaxie/beego/orm"
 )

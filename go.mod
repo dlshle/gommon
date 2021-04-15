@@ -1,4 +1,4 @@
-module mongoClient
+module gommon
 
 go 1.13
 

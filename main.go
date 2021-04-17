@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"gommon/async"
 	"gommon/http"
+	"gommon/log"
+	"os"
 	"reflect"
 	"time"
 
@@ -487,7 +489,13 @@ func main() {
 		}
 		fmt.Println(users)
 	})
-
+	runWith(true, func() {
+		logger := log.NewDLogger(os.Stdout, 0x011, "[TLogger]",false)
+		logger.Info("Whaddup biattttch!!!!")
+		logger.Info("This working???")
+		logger.Info("holy shiiit!!!!")
+		// time.Sleep(time.Second * 3)
+	})
 }
 
 func runWith(run bool, executor func()) {

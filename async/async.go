@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 )
 
+// channel has better performance, use Barrier to replace Promise
+
 type AsyncError struct {
 	msg string
 }

@@ -3,11 +3,10 @@ package log
 import (
 	"io"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 )
-
-//log.New(os.Stdout, fmt.Sprintf("HttpClient[%s]", id), log.Ldate|log.Ltime|log.Lshortfile),
 
 // TODO logger that utilizes the log package and can support multiple log levels both async and sync
 
@@ -70,13 +69,10 @@ type Logger struct {
 	dateTimeConfig int // 3-bit int TIME_STAMP DATE TIME
 	logFile bool
 	prefix string
-	idCounter uint32
 }
 
-func (l *Logger) log(s []byte) uint32 {
-	l.idCounter = atomic.AddUint32(&l.idCounter, 1)
+func (l *Logger) log(s []byte)  {
 	l.writer.Write(s)
-	return l.idCounter
 }
 
 func (l *Logger) SetWriter(writer io.Writer) {
@@ -126,13 +122,13 @@ func (l *Logger) DateTimePrefix(t time.Time) string {
 }
 
 type ILogger interface {
-	log(s []byte) uint32
-	Log(level int, time time.Time, s []string) uint32 // will transform level+string data to []byte
-	Debug(s... string) uint32
-	Info(s... string) uint32
-	Warn(s... string) uint32
-	Error(s... string) uint32
-	Fatal(s... string) uint32
+	log(s []byte)
+	Log(level int, time time.Time, s []string)  // will transform level+string state to []byte
+	Debug(s... string)
+	Info(s... string)
+	Warn(s... string)
+	Error(s... string)
+	Fatal(s... string)
 	DateTimePrefix(t time.Time) string
 	SetWriter(writer io.Writer)
 	SetPrefix(prefix string)
@@ -212,26 +208,14 @@ const (
 
 func initDefaultLoggerConfigs() {
 	initDLogDateTimePrefixHandlers()
-	initDLogHandlers()
 }
 
-var defaultLoggerLevelHandlerMap map[int]func(string)string
 var dLoggerDateTimePrefixHandlerMap map[int]func(time.Time)string
 
 type awaitableLogJob struct {
+	// *async.Barrier
 	c chan bool
 	data []byte
-	lid uint32
-}
-
-func initDLogHandlers() {
-	defaultLoggerLevelHandlerMap = make(map[int]func(string)string)
-	for _, level := range DefaultLevels {
-		currLevel := level
-		defaultLoggerLevelHandlerMap[currLevel] = func(msg string) string {
-			return DefaultLevelStringMap[currLevel] + msg
-		}
-	}
 }
 
 func initDLogDateTimePrefixHandlers() {
@@ -248,11 +232,6 @@ func initDLogDateTimePrefixHandlers() {
 	dLoggerDateTimePrefixHandlerMap[LogTimeOnly] = func (t time.Time) string {
 		return t.Format("15:04:05")
 	}
-}
-
-func (j *awaitableLogJob) get() uint32 {
-	<- j.c
-	return j.lid
 }
 
 type DLogger struct {
@@ -273,7 +252,8 @@ func (d *DLogger) setStatus(status uint8) {
 func (d *DLogger) worker() {
 	for d.getStatus() < DLoggerStatusStopping {
 		data := <- d.dataChannel
-		data.lid = d.log(data.data)
+		d.log(data.data)
+		// data.Open()
 		close(data.c)
 	}
 	d.setStatus(DLoggerStatusStopped)
@@ -283,47 +263,41 @@ func (d *DLogger) stop() {
 	d.setStatus(DLoggerStatusStopping)
 }
 
-
 func (d *DLogger) prefixStrings(level int, t time.Time) string {
-	return  d.DateTimePrefix(t) + " " + defaultLoggerLevelHandlerMap[level](d.prefix)
+	return  sconcat(d.DateTimePrefix(t), " ", DefaultLevelStringMap[level], d.prefix)
 }
 
-func (d *DLogger) Log(level int, t time.Time, s []string) uint32 {
-	concatenatedMessage := ""
-	for _, msg := range s {
-		concatenatedMessage += msg
-	}
-	concatenatedMessage += "\n"
+func (d *DLogger) Log(level int, t time.Time, s []string)  {
+	msg := sconcat(d.prefixStrings(level, t), " ", sconcatl(s), "\n")
 	awaitableLog := &awaitableLogJob{
-		c:    make(chan bool),
-		data: ([]byte)(d.prefixStrings(level, t) + " " + concatenatedMessage),
-		lid:  0,
+		//async.NewBarrier(),
+		make(chan bool),
+		([]byte)(msg),
 	}
 	d.dataChannel <- awaitableLog
-	if d.async {
-		return 0
+	if !d.async {
+		<- awaitableLog.c
 	}
-	return awaitableLog.get()
 }
 
-func (d *DLogger) Debug(s... string) uint32 {
-	return d.Log(DefaultLevelDebug, time.Now(), s)
+func (d *DLogger) Debug(s... string)  {
+	d.Log(DefaultLevelDebug, time.Now(), s)
 }
 
-func (d *DLogger) Info(s... string) uint32 {
-	return d.Log(DefaultLevelInfo, time.Now(), s)
+func (d *DLogger) Info(s... string)  {
+	d.Log(DefaultLevelInfo, time.Now(), s)
 }
 
-func (d *DLogger) Warn(s... string) uint32 {
-	return d.Log(DefaultLevelWarn, time.Now(), s)
+func (d *DLogger) Warn(s... string)  {
+	d.Log(DefaultLevelWarn, time.Now(), s)
 }
 
-func (d *DLogger) Error(s... string) uint32 {
-	return d.Log(DefaultLevelError, time.Now(), s)
+func (d *DLogger) Error(s... string)  {
+	d.Log(DefaultLevelError, time.Now(), s)
 }
 
-func (d *DLogger) Fatal(s... string) uint32 {
-	return d.Log(DefaultLevelFatal, time.Now(), s)
+func (d *DLogger) Fatal(s... string)  {
+	d.Log(DefaultLevelFatal, time.Now(), s)
 }
 
 func (d *DLogger) Builder() ILogBuilder {
@@ -336,7 +310,6 @@ func NewDLogger(writer io.Writer, dateTimeConfig int, prefix string, useAsync bo
 		dateTimeConfig,
 		false,
 		prefix,
-		0,
 	}
 	dLogger := &DLogger{
 		Logger:      baseLogger,
@@ -347,4 +320,17 @@ func NewDLogger(writer io.Writer, dateTimeConfig int, prefix string, useAsync bo
 	dLogger.setStatus(DLoggerStatusStarted)
 	go dLogger.worker()
 	return dLogger
+}
+
+// Utils
+func sconcat(params... string) string {
+	return sconcatl(params)
+}
+
+func sconcatl(s []string) string {
+	var sb strings.Builder
+	for _, str := range s {
+		sb.WriteString(str)
+	}
+	return sb.String()
 }

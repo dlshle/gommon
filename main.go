@@ -27,6 +27,8 @@ import (
 	"gommon/timed"
 	// orm
 	"github.com/astaxie/beego/orm"
+
+	lag "log"
 )
 
 type Unmarshaler interface {
@@ -489,13 +491,23 @@ func main() {
 		}
 		fmt.Println(users)
 	})
-	runWith(true, func() {
-		logger := log.NewDLogger(os.Stdout, 0x011, "[TLogger]",false)
-		logger.Info("Whaddup biattttch!!!!")
-		logger.Info("This working???")
-		logger.Info("holy shiiit!!!!")
-		// time.Sleep(time.Second * 3)
+	runWith(true, LoggerTest)
+}
+
+func LoggerTest() {
+	my := performance.MeasureWithLog("myLogger", func() {
+		logger := log.NewDLogger(os.Stdout, log.LogDateTime, "[MyLogger]", false)
+		for i := 0; i < 1000; i++ {
+			logger.Info("")
+		}
 	})
+	os := performance.MeasureWithLog("osLogger", func() {
+		lagger := lag.New(os.Stdout, "[OsLogger]", lag.Ldate|lag.Ltime)
+		for i := 0; i < 1000; i++ {
+			lagger.Println("")
+		}
+	})
+	fmt.Println("my: ", my, "os: ", os)
 }
 
 func runWith(run bool, executor func()) {

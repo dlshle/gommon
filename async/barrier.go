@@ -43,11 +43,12 @@ func (s *StatefulBarrier) OpenWith(state interface{}) {
 	s.b.Open()
 }
 
-func (s *StatefulBarrier) Wait() interface{} {
-	if s.b.IsOpen() {
-		return s.state
-	}
+func (s *StatefulBarrier) Wait() {
 	s.b.Wait()
+}
+
+func (s* StatefulBarrier) Get() interface{} {
+	s.Wait()
 	return s.state
 }
 

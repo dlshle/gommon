@@ -1,13 +1,9 @@
 package http_client
 
 import (
-	"bufio"
-	"flag"
-	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
-	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -150,7 +146,7 @@ func defaultRequestFilterFunc(request *HTTPRequest) bool {
 		return false
 	}
 	if request.Awaitable == nil {
-		request.Awaitable = make(chan *HTTPResponse)
+		request.Awaitable = make(chan *HTTPResponse, 1)
 	}
 	return true
 }
@@ -178,8 +174,8 @@ func (q *HTTPRequestQueue) dequeue() *HTTPRequest {
 	return r
 }
 
-func newHTTPRequestQueue() *HTTPRequestQueue {
-	return &HTTPRequestQueue{make(chan *HTTPRequest), defaultRequestFilterFunc}
+func newHTTPRequestQueue(size int) *HTTPRequestQueue {
+	return &HTTPRequestQueue{make(chan *HTTPRequest, size), defaultRequestFilterFunc}
 }
 
 type FutureHTTPResponse struct {
@@ -352,7 +348,7 @@ func (c *HTTPClient) toRawRequest(request *HTTPRequest) (*http.Request, error) {
 	return rawRequest, nil
 }
 
-func NewHTTPClient(baseUrl string, numClients int, timeoutInSec int, delayTime int) *HTTPClient {
+func NewHTTPClient(baseUrl string, numClients int, queueSize int, timeoutInSec int, delayTime int) *HTTPClient {
 	if numClients > MaxClientSize {
 		numClients = MaxClientSize
 	}
@@ -362,93 +358,16 @@ func NewHTTPClient(baseUrl string, numClients int, timeoutInSec int, delayTime i
 	if delayTime > MaxDelayTime {
 		delayTime = MaxDelayTime
 	}
+	if queueSize < 1 {
+		queueSize = 1024
+	}
 	rawClients := make([]*http.Client, numClients)
 	for i := 0; i < numClients; i++ {
 		rawClients[i] = newHTTPClient(timeoutInSec)
 	}
-	return &HTTPClient{new(sync.RWMutex), false, false, baseUrl, rawClients, newHTTPRequestQueue(), make([]RequestProcessor, 0, 5), delayTime}
+	return &HTTPClient{new(sync.RWMutex), false, false, baseUrl, rawClients, newHTTPRequestQueue(queueSize), make([]RequestProcessor, 0, 5), delayTime}
 }
 
 func newHTTPClient(timeout int) *http.Client {
 	return &http.Client{Timeout: time.Second * time.Duration(timeout)}
-}
-
-// Tests
-func copyOne(request *HTTPRequest) *HTTPRequest {
-	cpy := NewHTTPRequestBuilder().Url(request.Url).Method(request.Method).CustomizeHeader(request.CustomizeHeader).Build()
-	return cpy
-}
-
-func copyRequest(request *HTTPRequest, amount int) []*HTTPRequest {
-	list := make([]*HTTPRequest, amount)
-	for i := 0; i < amount; i++ {
-		list[i] = copyOne(request)
-	}
-	return list
-}
-
-func buildRCClient(baseUrl string, numClients int, delayTime int) *HTTPClient {
-	return NewHTTPClient(baseUrl, numClients, 5, delayTime)
-}
-
-func buildRCRequestWithToken(url string, method string, token string) *HTTPRequest {
-	customizeHeader := make(map[string]string)
-	customizeHeader["Accept"] = "*/*"
-	customizeHeader["Accept-Encoding"] = "gzip, deflate, br"
-	customizeHeader["User-Agent"] = "PostmanRuntime/7.26.8"
-	var actualToken string
-	if token != "" {
-		if token[:7] == "Bearer " {
-			actualToken = token
-		} else {
-			actualToken = "Bearer " + token
-		}
-		customizeHeader["Authorization"] = actualToken
-	}
-	return NewHTTPRequestBuilder().Url(url).Method(method).CustomizeHeader(customizeHeader).Build()
-}
-
-var baseFlag = flag.String("b", "https://api-xmnup.lab.nordigy.ru", "need to specify the base Url for the client")
-var cFlag = flag.Int("c", 10, "need to specify the number of concurrent running clients")
-var delayTimeFlag = flag.Int("d", 0, "need to specify the delay time for each request")
-var urlFlag = flag.String("u", "", "need to specify the Url for the request")
-var methodFlag = flag.String("m", "GET", "need to specify the Method for the request")
-var tokenFlag = flag.String("t", "", "need to specify the token for the request")
-var nFlag = flag.Int("n", 10, "need to specify how many requests do you want to send")
-
-func runClientTest() {
-	flag.Parse()
-	baseUrl := *baseFlag
-	num_concurrency := *cFlag
-	delayTime := *delayTimeFlag
-	url := *urlFlag
-	method := *methodFlag
-	token := *tokenFlag
-	num_requests := *nFlag
-	client := buildRCClient(baseUrl, num_concurrency, delayTime)
-	requestInstance := buildRCRequestWithToken(url, method, token)
-	requests := copyRequest(requestInstance, num_requests)
-
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("Are you sure you want to send request to %s with %d clients and %d requests?\nY/n", (baseUrl + url), num_concurrency, num_requests)
-	text, input_err := reader.ReadString('\n')
-	if input_err != nil {
-		fmt.Println("Input error, terminating the client...")
-		return
-	}
-	if text == "Y\n" {
-		responses := client.RequestInPool(requests)
-		num_all := 0
-		num_success := 0
-		for _, res := range responses {
-			num_all += 1
-			if res.success {
-				fmt.Println("success: ", res.success)
-				num_success += 1
-			} else {
-				fmt.Printf("error code: %d err body: %s\n", res.code, res.body)
-			}
-		}
-		fmt.Printf("success: %d / %d failed: %d / %d\n", num_success, num_all, (num_all - num_success), num_all)
-	}
 }

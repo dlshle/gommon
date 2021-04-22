@@ -2,9 +2,9 @@ package http
 
 import (
 	"fmt"
+	"gommon/logger"
 	"io"
 	"io/ioutil"
-	"log"
 	"math/rand"
 	"net/http"
 	urlpkg "net/url"
@@ -23,7 +23,7 @@ import (
 type Request = http.Request
 
 // logger
-var globalLogger = log.New(os.Stdout, "[NetworkClient]", log.Ldate|log.Ltime|log.Lshortfile)
+var globalLogger = logger.New(os.Stdout, "[NetworkClient]", true)
 
 // request status error messages
 var requestStatusErrorStringMap map[int]string
@@ -123,59 +123,12 @@ func BuildBodyFrom(body string) io.Reader {
 }
 
 // HTTP Request
-
-// constants
-
-// request validators
-var requestValidators = []func(r *http.Request) error{
-	// url validator
-	func(r *http.Request) error {
-		if r.URL == nil || r.URL.String() == "" {
-			return NewClientError("Invalid request url(%s).", ErrInvalidRequestUrl)
-		}
-		return nil
-	},
-	// method validator
-	func(r *http.Request) error {
-		// TODO should really check if method is in valid methods
-		if len(r.Method) == 0 {
-			return NewClientError("Request method not set.", ErrInvalidRequestMethod)
-		}
-		return nil
-	},
-}
-var requestValidationHandlers = []func(errors []error) error{
-	// 0 error
-	func(errors []error) error {
-		return nil
-	},
-	// 1 error
-	func(errors []error) error {
-		for _, err := range errors {
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	},
-	// > 1 errors
-	func(errors []error) error {
-		errMsg := ""
-		for _, err := range errors {
-			if err != nil {
-				errMsg = fmt.Sprintf("%s\n%s", errMsg, err.Error())
-			}
-		}
-		return NewClientError(errMsg, ErrInvalidRequest)
-	},
-}
-
 type RequestBuilder struct {
 	request *http.Request
 }
 
 type IRequestBuilder interface {
-	Build() (*http.Request, error)
+	Build() *http.Request
 	Method(method string) *RequestBuilder
 	URL(url string) *RequestBuilder
 	Header(header http.Header) *RequestBuilder
@@ -183,33 +136,15 @@ type IRequestBuilder interface {
 	StringBody(body string) *RequestBuilder
 }
 
-// RequestBuilder helpers
-func validateRequest(request *http.Request) error {
-	errors := make([]error, len(requestValidators))
-	numErrors := 0
-	for i, validator := range requestValidators {
-		err := validator(request)
-		if err != nil {
-			numErrors += 1
-			errors[i] = validator(request)
-		}
-	}
-	return requestValidationHandlers[numErrors](errors)
-}
-
 func NewRequestBuilder() IRequestBuilder {
 	return &RequestBuilder{&http.Request{}}
 }
 
-func (b *RequestBuilder) Build() (*http.Request, error) {
+func (b *RequestBuilder) Build() *http.Request {
 	if b.request.Method == "" {
 		b.request.Method = "GET"
 	}
-	err := validateRequest(b.request)
-	if err != nil {
-		return nil, err
-	}
-	return b.request, nil
+	return b.request
 }
 
 func (b *RequestBuilder) Method(method string) *RequestBuilder {
@@ -367,10 +302,6 @@ func (tr *TrackableRequest) getRequest() *http.Request {
 func (tr *TrackableRequest) Update(request *http.Request) error {
 	status := tr.Status()
 	if status <= RequestStatusWaiting {
-		err := validateRequest(request)
-		if err != nil {
-			return err
-		}
 		tr.rwMutex.Lock()
 		tr.request = request
 		tr.rwMutex.Unlock()
@@ -420,18 +351,19 @@ type ClientPool struct {
 	id      string
 	clients []*http.Client
 	queue   chan *TrackableRequest
-	logger  *log.Logger
+	logger  *logger.SimpleLogger
 	status  int
 	rwMutex *sync.RWMutex
 }
 
 type IClientPool interface {
 	Id() string
-	request(request *http.Request) (*TrackableRequest, error)
-	Request(request *http.Request) (*Response, error)
-	RequestAsync(request *http.Request) (*TrackableRequest, error)
+	request(request *http.Request) *TrackableRequest
+	Request(request *http.Request) *Response
+	RequestAsync(request *http.Request) *TrackableRequest
 	batchRequest(requests []*http.Request) []*TrackableRequest
 	BatchRequest(requests []*http.Request) []*Response
+	Verbose(use bool)
 	// or channel?
 	BatchRequestAsync(requests []*http.Request) []*TrackableRequest
 	Status() int
@@ -464,7 +396,7 @@ func NewPool(id string, numClients, maxQueueSize, timeoutInSec int) *ClientPool 
 		id,
 		rawClients,
 		make(chan *TrackableRequest, maxQueueSize),
-		log.New(os.Stdout, fmt.Sprintf("HttpClient[%s]", id), log.Ldate|log.Ltime|log.Lshortfile),
+		logger.New(os.Stdout, fmt.Sprintf("HttpClient[%s]", id), false),
 		PoolStatusIdle,
 		new(sync.RWMutex),
 	}
@@ -489,6 +421,7 @@ func (c *ClientPool) start() {
 				loggerTag := fmt.Sprintf("[Client-%d]", id)
 				c.logger.Printf("%s client has started.\n", loggerTag)
 				for c.Status() == PoolStatusRunning {
+					// actual worker logic
 					request := <-c.queue
 					if request != nil {
 						if request.Status() != RequestStatusWaiting {
@@ -552,41 +485,28 @@ func (c *ClientPool) Status() int {
 	return c.status
 }
 
-func (c *ClientPool) request(request *http.Request) (*TrackableRequest, error) {
+func (c *ClientPool) request(request *http.Request) *TrackableRequest {
 	loggerTag := "[Request]"
 	c.logger.Printf("%s New request received: %+v\nCurrent queue size: %d\n", loggerTag, request, len(c.queue))
-	err := validateRequest(request)
-	if err != nil {
-		c.logger.Printf("%s Request validation failed due to %s\n", loggerTag, err.Error())
-		return nil, err
-	}
 	trackableRequest := NewTrackableRequest(request)
 	trackableRequest.setStatus(RequestStatusWaiting)
 	c.queue <- trackableRequest
-	return trackableRequest, nil
+	return trackableRequest
 }
 
-func (c *ClientPool) Request(request *http.Request) (*Response, error) {
-	tr, err := c.request(request)
-	if err != nil {
-		return nil, err
-	}
-	return tr.Response(), nil
+func (c *ClientPool) Request(request *http.Request) *Response {
+	tr := c.request(request)
+	return tr.Response()
 }
 
-func (c *ClientPool) RequestAsync(request *http.Request) (*TrackableRequest, error) {
+func (c *ClientPool) RequestAsync(request *http.Request) *TrackableRequest {
 	return c.request(request)
 }
 
 func (c *ClientPool) batchRequest(requests []*http.Request) []*TrackableRequest {
 	res := make([]*TrackableRequest, len(requests))
 	for i, req := range requests {
-		tr, err := c.request(req)
-		if err != nil {
-			res[i] = nil
-		} else {
-			res[i] = tr
-		}
+		res[i] = c.request(req)
 	}
 	return res
 }
@@ -608,6 +528,10 @@ func (c *ClientPool) BatchRequestAsync(requests []*http.Request) []*TrackableReq
 	return c.batchRequest(requests)
 }
 
+func (c *ClientPool) Verbose(use bool) {
+	c.logger.Verbose(use)
+}
+
 // global client
 var globalPool *ClientPool
 
@@ -616,11 +540,11 @@ func initGlobalPool() {
 	globalPool = NewPool("global", numCpu, numCpu*16, 30)
 }
 
-func DoRequest(request *http.Request) (*Response, error) {
+func DoRequest(request *http.Request) *Response {
 	return globalPool.Request(request)
 }
 
-func DoRequestAsync(request *http.Request) (*TrackableRequest, error) {
+func DoRequestAsync(request *http.Request) *TrackableRequest {
 	return globalPool.RequestAsync(request)
 }
 

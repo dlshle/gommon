@@ -2,10 +2,9 @@ package async
 
 import (
 	"fmt"
-	"log"
+	"gommon/logger"
 	"os"
 	"sync"
-	"sync/atomic"
 )
 
 // channel has better performance, use Barrier to replace Promise
@@ -22,79 +21,6 @@ func NewAsyncError(msg string) error {
 	return &AsyncError{msg}
 }
 
-type Promise struct {
-	cond     *sync.Cond
-	isClosed atomic.Value
-}
-
-type IPromise interface {
-	IsClosed() bool
-	Wait()
-	resolve() error
-}
-
-func NewPromise() *Promise {
-	var value atomic.Value
-	value.Store(false)
-	return &Promise{sync.NewCond(&sync.Mutex{}), value}
-}
-
-func (p *Promise) IsClosed() bool {
-	return p.isClosed.Load().(bool)
-}
-
-func (p *Promise) Wait() {
-	if p.IsClosed() {
-		return
-	}
-	p.cond.L.Lock()
-	p.cond.Wait()
-	p.cond.L.Unlock()
-}
-
-func (p *Promise) resolve() error {
-	if p.IsClosed() {
-		return NewAsyncError("Promise has already been resolved.")
-	}
-	p.cond.L.Lock()
-	p.cond.Broadcast()
-	p.isClosed.Store(true)
-	p.cond.L.Unlock()
-	return nil
-}
-
-type Future struct {
-	*Promise
-	value interface{}
-}
-
-type IFuture interface {
-	Get() interface{}
-	Wait()
-	resolve(value interface{}) error
-}
-
-func NewFuture() *Future {
-	return &Future{NewPromise(), nil}
-}
-
-func (f *Future) Get() interface{} {
-	f.Wait()
-	return f.value
-}
-
-func (f *Future) Wait() {
-	f.Promise.Wait()
-}
-
-func (f *Future) resolve(value interface{}) error {
-	if f.Promise.IsClosed() {
-		return NewAsyncError("Future has already been resolved.")
-	}
-	f.Promise.resolve()
-	f.value = value
-	return nil
-}
 
 type AsyncTask func()
 
@@ -113,7 +39,7 @@ type AsyncPool struct {
 	channel    chan AsyncTask
 	numWorkers int
 	status     int
-	logger     *log.Logger
+	logger     *logger.SimpleLogger
 }
 
 type IAsyncPool interface {
@@ -124,8 +50,9 @@ type IAsyncPool interface {
 	Start()
 	Stop()
 	schedule(task AsyncTask)
-	Schedule(task AsyncTask) IPromise
-	ScheduleComputable(computableTask ComputableAsyncTask) IFuture
+	Schedule(task AsyncTask) *Barrier
+	ScheduleComputable(computableTask ComputableAsyncTask) *StatefulBarrier
+	Verbose(use bool)
 }
 
 func NewAsyncPool(id string, maxPoolSize, workerSize int) *AsyncPool {
@@ -135,7 +62,7 @@ func NewAsyncPool(id string, maxPoolSize, workerSize int) *AsyncPool {
 		make(chan AsyncTask, getInRangeInt(maxPoolSize, 16, 2048)),
 		getInRangeInt(workerSize, 2, 1024),
 		0,
-		log.New(os.Stdout, fmt.Sprintf("AsyncPool[pool-%s]", id), log.Ldate|log.Ltime|log.Lshortfile),
+		logger.New(os.Stdout, fmt.Sprintf("AsyncPool[pool-%s]", id), false),
 	}
 }
 
@@ -220,22 +147,26 @@ func (p *AsyncPool) schedule(task AsyncTask) {
 }
 
 // will block on channel buffer size exceeded
-func (p *AsyncPool) Schedule(task AsyncTask) IPromise {
-	promise := NewPromise()
+func (p *AsyncPool) Schedule(task AsyncTask) *Barrier {
+	promise := NewBarrier()
 	p.schedule(func() {
 		task()
-		promise.resolve()
+		promise.Open()
 	})
 	return promise
 }
 
 // will block on channel buffer size exceeded
-func (p *AsyncPool) ScheduleComputable(computableTask ComputableAsyncTask) IFuture {
-	future := NewFuture()
+func (p *AsyncPool) ScheduleComputable(computableTask ComputableAsyncTask) *StatefulBarrier {
+	future := NewStatefulBarrier()
 	p.schedule(func() {
-		future.resolve(computableTask())
+		future.OpenWith(computableTask())
 	})
 	return future
+}
+
+func (p *AsyncPool) Verbose(use bool) {
+	p.logger.Verbose(use)
 }
 
 // utils

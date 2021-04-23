@@ -2,7 +2,8 @@ package timed
 
 import (
 	"fmt"
-	"log"
+	"gommon/async"
+	"gommon/logger"
 	"os"
 	"sync"
 	"time"
@@ -33,13 +34,11 @@ const (
 	transitRunningWaiting     = 10 // interval job only
 )
 
-var globalLogger = log.New(os.Stdout, "[Performance]", log.Ldate|log.Ltime|log.Lshortfile)
-
 var jobPoolEvictStrategies = make(map[int]func(p *JobPool, uuid int64))
 var jobPoolTransitStrategies = make(map[int]func(p *JobPool, uuid int64))
 var jobExecutorBuildingStrategies = make(map[int]func(p *JobPool, Job func(), duration time.Duration) *Job)
 var statusStringMap = make(map[int]string)
-var globalPool = NewJobPool("default", 1024)
+var globalPool = NewJobPool("default", 1024, true)
 
 func init() {
 	initPoolEvictStrategy()
@@ -150,7 +149,7 @@ type JobPool struct {
 	maxSize      int
 	evictPolicy  int
 	finishPolicy int
-	logger       *log.Logger
+	logger       *logger.SimpleLogger
 	*sync.RWMutex
 }
 
@@ -167,9 +166,10 @@ type IJobPool interface {
 	setStatus(uuid int64, status int)
 	transitJobStatus(uuid int64, status int)
 	Size() int
+	Verbose(use bool)
 }
 
-func NewJobPool(id string, maxSize int) *JobPool {
+func NewJobPool(id string, maxSize int, verbose bool) *JobPool {
 	if maxSize < MinPoolSize {
 		maxSize = MinPoolSize
 	} else if maxSize > MaxPoolSize {
@@ -180,7 +180,7 @@ func NewJobPool(id string, maxSize int) *JobPool {
 		maxSize,
 		0,
 		0,
-		log.New(os.Stdout, fmt.Sprintf("JobPool[pool-%s]", id), log.Ldate|log.Ltime|log.Lshortfile),
+		logger.New(os.Stdout, fmt.Sprintf("JobPool[pool-%s]", id), verbose),
 		new(sync.RWMutex),
 	}
 }
@@ -231,6 +231,10 @@ func (p *JobPool) GetStatus(id int64) int {
 	}
 }
 
+func (p *JobPool) Verbose(use bool) {
+	p.logger.Verbose(use)
+}
+
 func (p *JobPool) scheduleJob(Job func(), duration time.Duration, executorStrategy int, runAsync bool) int64 {
 	if p.Size() >= p.maxSize {
 		p.logger.Println("Error: max pool size has been reached, new job will be evicted!")
@@ -241,7 +245,7 @@ func (p *JobPool) scheduleJob(Job func(), duration time.Duration, executorStrate
 	p.jobMap[uuid] = job
 	p.logger.Printf("Job %d has been scheduled\n", uuid)
 	if runAsync {
-		go job.executor()
+		async.Schedule(job.executor)
 	} else {
 		job.executor()
 	}

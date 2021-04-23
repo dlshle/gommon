@@ -4,8 +4,16 @@ import (
 	"fmt"
 	"gommon/logger"
 	"os"
+	"runtime"
 	"sync"
 )
+
+var globalPool *AsyncPool
+
+func init() {
+	numCpu := runtime.NumCPU()
+	globalPool = NewAsyncPool("globalAsyncPool", numCpu*128, numCpu*4)
+}
 
 // channel has better performance, use Barrier to replace Promise
 
@@ -20,7 +28,6 @@ func (e *AsyncError) Error() string {
 func NewAsyncError(msg string) error {
 	return &AsyncError{msg}
 }
-
 
 type AsyncTask func()
 
@@ -178,4 +185,16 @@ func getInRangeInt(value, min, max int) int {
 	} else {
 		return value
 	}
+}
+
+func Schedule(task AsyncTask) *Barrier {
+	return globalPool.Schedule(task)
+}
+
+func ScheduleComputable(computableTask ComputableAsyncTask) *StatefulBarrier {
+	return globalPool.ScheduleComputable(computableTask)
+}
+
+func Verbose(use bool) {
+	globalPool.Verbose(use)
 }

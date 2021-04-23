@@ -297,7 +297,7 @@ func asyncPT() {
 
 func simpleJobT() {
 	performance.MeasureWithLog("jobPool", func() {
-		jobPool := timed.NewJobPool("t", 1)
+		jobPool := timed.NewJobPool("t", 1, false)
 		jobPool.ScheduleTimeoutJob(func() {
 			fmt.Println("after 3 seconds")
 		}, time.Second*3)

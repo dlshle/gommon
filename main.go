@@ -3,30 +3,34 @@ package main
 import (
 	"context"
 	"fmt"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
-	"gommon/async"
-	"gommon/deepcopy"
-	"gommon/http"
-	"gommon/http_client"
-	"gommon/logger"
 	"os"
 	"reflect"
 	"time"
+
+	"github.com/dlshle/gommon/async"
+	"github.com/dlshle/gommon/deepcopy"
+	"github.com/dlshle/gommon/http"
+	"github.com/dlshle/gommon/http_client"
+	"github.com/dlshle/gommon/logger"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 
 	// mongo
 	"go.mongodb.org/mongo-driver/bson"
 	// mysql
 	"database/sql"
+
 	_ "github.com/go-sql-driver/mysql"
 
-	"gommon/mysql"
-	"gommon/performance"
-	"gommon/timed"
+	"github.com/dlshle/gommon/mysql"
+	"github.com/dlshle/gommon/performance"
+	"github.com/dlshle/gommon/timed"
+
 	// orm
-	"github.com/astaxie/beego/orm"
 	lag "log"
+
+	"github.com/astaxie/beego/orm"
 )
 
 type Unmarshaler interface {

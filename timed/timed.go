@@ -2,11 +2,12 @@ package timed
 
 import (
 	"fmt"
-	"gommon/async"
-	"gommon/logger"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/dlshle/gommon/async"
+	"github.com/dlshle/gommon/logger"
 )
 
 const (

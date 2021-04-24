@@ -2,7 +2,6 @@ package http
 
 import (
 	"fmt"
-	"gommon/logger"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -15,6 +14,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/dlshle/gommon/logger"
 )
 
 // Globals

@@ -2,10 +2,11 @@ package async
 
 import (
 	"fmt"
-	"gommon/logger"
 	"os"
 	"runtime"
 	"sync"
+
+	"github.com/dlshle/gommon/logger"
 )
 
 var globalPool *AsyncPool

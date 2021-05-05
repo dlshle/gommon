@@ -24,10 +24,12 @@ func (b *Barrier) IsOpen() bool {
 }
 
 func NewBarrier() *Barrier {
-	return &Barrier{
+	b := &Barrier{
 		make(chan bool),
 		atomic.Value{},
 	}
+	b.isOpen.Store(false)
+	return b
 }
 
 type StatefulBarrier struct {

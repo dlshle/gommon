@@ -24,6 +24,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	"github.com/dlshle/gommon/mysql"
+	"github.com/dlshle/gommon/notification"
 	"github.com/dlshle/gommon/performance"
 	"github.com/dlshle/gommon/timed"
 
@@ -65,6 +66,40 @@ func (user *User) UnmarshalBSON(b []byte) error {
   return nil
 }
 */
+
+func notificationT() {
+	notification.Once("on evt", func(payload interface{}) {
+		fmt.Println("on evt ONCE listener with payload ", payload)
+	})
+
+	onEvtListener := func(payload interface{}) {
+		fmt.Println("on evt listener with payload ", payload)
+	}
+
+	notification.On("on evt", onEvtListener)
+
+	notification.Notify("on evt", "hello!!!")
+	notification.Notify("on evt", "hello!!!2")
+
+	notification.Off("on evt", onEvtListener)
+	notification.Notify("on evt", "hello!!!3 should not one reply!!!")
+
+	notification.On("on evt", func(payload interface{}) {
+		fmt.Println("really last + 1 listener with ", payload)
+	})
+
+	notification.Notify("on evt", "hello!!!!4 one list")
+	notification.OffAll("on evt")
+	notification.Notify("on evt", "last call no reply!!!!")
+
+	disposer, _ := notification.On("on evt", func(payload interface{}) {
+		fmt.Println("realllly lasttttt listener with ", payload)
+	})
+	notification.Notify("on evt", "laaaaastttt!!!!+1")
+	notification.Notify("on evt", "laaaaastttt!!!!")
+	disposer()
+	notification.Notify("on evt", "please dont show!")
+}
 
 func mongoT() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -507,15 +542,16 @@ func oldHttpClientT() {
 func main() {
 	runWith(false, mongoT)
 	runWith(false, asyncPT)
-	runWith(true, simpleJobT)
-	runWith(true, newHttpClientT)
-	runWith(true, newHttpClientSyncT)
+	runWith(false, simpleJobT)
+	runWith(false, newHttpClientT)
+	runWith(false, newHttpClientSyncT)
 	runWith(false, oldHttpClientT)
-	runWith(true, newHttpClientBatchT)
+	runWith(false, newHttpClientBatchT)
 	runWith(false, mysqlT)
 	runWith(false, mysqlORMT)
 	runWith(false, mysqlManagerT)
 	runWith(false, LoggerTest)
+	runWith(true, notificationT)
 	fmt.Println("Main done")
 }
 

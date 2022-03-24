@@ -16,7 +16,15 @@ type task struct {
 	repeat    bool
 }
 
-type Timer struct {
+type Timer interface {
+  Timeout(duration time.Duration, cb func()) string
+  Interval(duration time.Duration, cb func()) string
+  Reset(id string) bool
+  Cancel(id string) bool
+  Stop()
+}
+
+type timer struct {
 	asyncPool  async.AsyncPool
 	tasks      map[string]task
 	isRunning  bool
@@ -25,27 +33,27 @@ type Timer struct {
 	ticker     *time.Ticker
 }
 
-func (t *Timer) Timeout(duration time.Duration, callback func()) string {
+func (t *timer) Timeout(duration time.Duration, callback func()) string {
 	panic("implement this")
 }
 
-func (t *Timer) Interval(duration time.Duration, callback func()) string {
+func (t *timer) Interval(duration time.Duration, callback func()) string {
 	panic("implement this")
 }
 
-func (t *Timer) Reset(id string) bool {
+func (t *timer) Reset(id string) bool {
 	panic("implement this")
 }
 
-func (t *Timer) Cancel(id string) bool {
+func (t *timer) Cancel(id string) bool {
 	panic("implement this")
 }
 
-func (t *Timer) Stop() {
+func (t *timer) Stop() {
 	t.cancelFunc()
 }
 
-func (t *Timer) loop() {
+func (t *timer) loop() {
 	select {
 	case <-t.ticker.C:
 		t.tickAction()
@@ -54,7 +62,7 @@ func (t *Timer) loop() {
 	}
 }
 
-func (t *Timer) tickAction() {
+func (t *timer) tickAction() {
 	now := time.Now()
 	for _, v := range t.tasks {
 		if now.After(v.timeoutAt) {
@@ -65,7 +73,7 @@ func (t *Timer) tickAction() {
 	}
 }
 
-func (t *Timer) executeTask(v task) {
+func (t *timer) executeTask(v task) {
 	v.cb()
 	if v.repeat {
 		v.timeoutAt = time.Now().Add(v.duration)

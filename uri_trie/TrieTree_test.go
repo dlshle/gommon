@@ -2,6 +2,7 @@ package uri_trie
 
 import (
 	"testing"
+
 	"github.com/dlshle/gommon/test_utils"
 )
 
@@ -178,6 +179,18 @@ func TestTrieTree(t *testing.T) {
 				return false
 			}
 			return true
+		}),
+		test_utils.NewTestCase("/projects?pageSize=10&pageToken=123==xyz=", "", func() bool {
+			tree.RemoveAll()
+			err := tree.Add("/projects", true, true)
+			if err != nil {
+				return false
+			}
+			ctx, err := tree.Match("/projects?pageSize=10&pageToken=123==xyz=")
+			if err != nil {
+				return false
+			}
+			return ctx.QueryParams["pageSize"] == "10" && ctx.QueryParams["pageToken"] == "123==xyz="
 		}),
 	}).Do(t)
 }

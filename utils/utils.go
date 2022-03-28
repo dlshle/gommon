@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"encoding/base64"
 	"fmt"
 	"math/rand"
 	"time"
@@ -125,10 +126,18 @@ func GetIpAddrAndPort(remoteAddr string) (res [2]string, err error) {
 }
 
 func IsStringsNotEmpty(targets ...string) bool {
-  for _, str := range targets {
-    if str == "" {
-      return false
-    }
-  }
-  return true
+	for _, str := range targets {
+		if str == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func EncodeBase64(data []byte) string {
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+func DecodeBase64(encoded string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(encoded)
 }

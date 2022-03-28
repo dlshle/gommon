@@ -4,7 +4,7 @@ import "sync"
 
 // quick add/removal of comparables
 
-type IInsertionList interface {
+type InsertionList interface {
 	Get(index int) IComparable
 	Add(item IComparable)
 	Remove(item IComparable) bool
@@ -16,24 +16,24 @@ type IInsertionList interface {
 	Clear()
 }
 
-type InsertionList struct {
+type insertionList struct {
 	list []IComparable
 }
 
-func NewInsertionList() IInsertionList {
-	return &InsertionList{
+func NewInsertionList() InsertionList {
+	return &insertionList{
 		list: []IComparable{},
 	}
 }
 
-func (l *InsertionList) Get(index int) IComparable {
+func (l *insertionList) Get(index int) IComparable {
 	if index < 0 || index > len(l.list) {
 		return nil
 	}
 	return l.list[index]
 }
 
-func (l *InsertionList) Add(item IComparable) {
+func (l *insertionList) Add(item IComparable) {
 	if len(l.list) == 0 {
 		l.list = append(l.list, item)
 		return
@@ -55,7 +55,7 @@ func (l *InsertionList) Add(item IComparable) {
 	l.list = append(l.list[:right], append([]IComparable{item}, l.list[right:]...)...)
 }
 
-func (l *InsertionList) Remove(item IComparable) bool {
+func (l *insertionList) Remove(item IComparable) bool {
 	index := l.Find(item)
 	if index == -1 {
 		return false
@@ -63,7 +63,7 @@ func (l *InsertionList) Remove(item IComparable) bool {
 	return l.RemoveAt(index)
 }
 
-func (l *InsertionList) RemoveAt(index int) bool {
+func (l *insertionList) RemoveAt(index int) bool {
 	if index < 0 || index > len(l.list) {
 		return false
 	}
@@ -71,12 +71,12 @@ func (l *InsertionList) RemoveAt(index int) bool {
 	return true
 }
 
-func (l *InsertionList) Clear() {
+func (l *insertionList) Clear() {
 	l.list = nil
 	l.list = make([]IComparable, 0)
 }
 
-func (l *InsertionList) Find(item IComparable) int {
+func (l *insertionList) Find(item IComparable) int {
 	if len(l.list) == 0 {
 		return -1
 	}
@@ -95,7 +95,7 @@ func (l *InsertionList) Find(item IComparable) int {
 	return -1
 }
 
-func (l *InsertionList) AsSlice() []IComparable {
+func (l *insertionList) AsSlice() []IComparable {
 	slice := make([]IComparable, len(l.list), len(l.list))
 	for i, item := range l.list {
 		slice[i] = item
@@ -103,20 +103,20 @@ func (l *InsertionList) AsSlice() []IComparable {
 	return slice
 }
 
-func (l *InsertionList) Has(item IComparable) bool {
+func (l *insertionList) Has(item IComparable) bool {
 	return l.Find(item) > -1
 }
 
-func (l *InsertionList) Size() int {
+func (l *insertionList) Size() int {
 	return len(l.list)
 }
 
 type SafeInsertionList struct {
-	list IInsertionList
+	list InsertionList
 	lock sync.RWMutex
 }
 
-func NewSafeInsertionList() IInsertionList {
+func NewSafeInsertionList() InsertionList {
 	return SafeInsertionList{
 		list: NewInsertionList(),
 		lock: *new(sync.RWMutex),

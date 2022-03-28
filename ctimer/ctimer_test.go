@@ -1,13 +1,13 @@
 package ctimer
 
 import (
+	"github.com/dlshle/gommon/test_utils"
 	"testing"
 	"time"
-	"github.com/dlshle/gommon/test_utils"
 )
 
 func TestCTimer(t *testing.T) {
-	test_utils.NewTestGroup("CTimer", "").Cases([]*test_utils.Assertion{
+	test_utils.NewTestGroup("cTimer", "").Cases([]*test_utils.Assertion{
 		test_utils.NewTestCase("simple timeout", "", func() bool {
 			flag := 0
 			New(time.Millisecond*500, func() {

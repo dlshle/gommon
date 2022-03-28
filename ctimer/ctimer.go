@@ -1,9 +1,9 @@
 package ctimer
 
 import (
+	"github.com/dlshle/gommon/async"
 	"sync"
 	"time"
-	"github.com/dlshle/gommon/async"
 )
 
 var timerPool *sync.Pool
@@ -11,7 +11,7 @@ var timerPool *sync.Pool
 func init() {
 	timerPool = &sync.Pool{
 		New: func() interface{} {
-			return new(CTimer)
+			return new(cTimer)
 		},
 	}
 }
@@ -26,7 +26,7 @@ const (
 	StatusRepeatRunning
 )
 
-type ICTimer interface {
+type CTimer interface {
 	Start()
 	Reset()
 	Cancel()
@@ -34,7 +34,7 @@ type ICTimer interface {
 	WithAsyncPool(pool async.AsyncPool)
 }
 
-type CTimer struct {
+type cTimer struct {
 	job           func()
 	startTime     time.Time
 	resetInterval time.Duration
@@ -43,23 +43,23 @@ type CTimer struct {
 	asyncPool     async.AsyncPool
 }
 
-func New(interval time.Duration, job func()) ICTimer {
-	timer := timerPool.Get().(*CTimer)
+func New(interval time.Duration, job func()) CTimer {
+	timer := timerPool.Get().(*cTimer)
 	timer.job = job
 	timer.interval = interval
 	timer.status = StatusIdle
-	return &CTimer{
+	return &cTimer{
 		job:      job,
 		interval: interval,
 		status:   StatusIdle,
 	}
 }
 
-func (t *CTimer) WithAsyncPool(pool async.AsyncPool) {
+func (t *cTimer) WithAsyncPool(pool async.AsyncPool) {
 	t.asyncPool = pool
 }
 
-func (t *CTimer) Start() {
+func (t *cTimer) Start() {
 	if t.status == StatusIdle {
 		t.runTask(func() {
 			t.waitAndRun(t.interval)
@@ -67,7 +67,7 @@ func (t *CTimer) Start() {
 	}
 }
 
-func (t *CTimer) Repeat() {
+func (t *cTimer) Repeat() {
 	if t.status == StatusIdle {
 		t.runTask(func() {
 			t.repeatWaitAndRun(t.interval)
@@ -75,7 +75,7 @@ func (t *CTimer) Repeat() {
 	}
 }
 
-func (t *CTimer) runTask(task func()) {
+func (t *cTimer) runTask(task func()) {
 	if t.asyncPool != nil {
 		t.asyncPool.Execute(task)
 	} else {
@@ -83,13 +83,13 @@ func (t *CTimer) runTask(task func()) {
 	}
 }
 
-func (t *CTimer) repeatWaitAndRun(interval time.Duration) {
+func (t *cTimer) repeatWaitAndRun(interval time.Duration) {
 	for t.status != StatusCancelled {
 		t.waitAndRun(interval)
 	}
 }
 
-func (t *CTimer) waitAndRun(interval time.Duration) {
+func (t *cTimer) waitAndRun(interval time.Duration) {
 	if t.status == StatusCancelled {
 		return
 	}
@@ -110,7 +110,7 @@ func (t *CTimer) waitAndRun(interval time.Duration) {
 	t.status = StatusIdle
 }
 
-func (t *CTimer) Reset() {
+func (t *cTimer) Reset() {
 	if t.status == StatusWaiting || t.status == StatusReset {
 		t.status = StatusReset
 		previousTime := t.startTime
@@ -122,7 +122,7 @@ func (t *CTimer) Reset() {
 	}
 }
 
-func (t *CTimer) Cancel() {
+func (t *cTimer) Cancel() {
 	if t.status == StatusWaiting || t.status == StatusRepeatWaiting || t.status == StatusRunning {
 		t.status = StatusCancelled
 	}

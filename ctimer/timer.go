@@ -4,8 +4,8 @@ package ctimer
 
 import (
 	"context"
-	"time"
 	"github.com/dlshle/gommon/async"
+	"time"
 )
 
 type task struct {
@@ -17,11 +17,11 @@ type task struct {
 }
 
 type Timer interface {
-  Timeout(duration time.Duration, cb func()) string
-  Interval(duration time.Duration, cb func()) string
-  Reset(id string) bool
-  Cancel(id string) bool
-  Stop()
+	Timeout(duration time.Duration, cb func()) string
+	Interval(duration time.Duration, cb func()) string
+	Reset(id string) bool
+	Cancel(id string) bool
+	Stop()
 }
 
 type timer struct {

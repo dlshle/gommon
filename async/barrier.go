@@ -7,6 +7,7 @@ import (
 
 type Waitable interface {
 	Wait()
+	IsOpen() bool
 }
 
 type Gettable interface {

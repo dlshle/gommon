@@ -2,7 +2,7 @@ package data_structures
 
 import "sync"
 
-type ISet interface {
+type Set interface {
 	Add(interface{}) bool
 	Delete(interface{}) bool
 	GetAll() []interface{}
@@ -12,15 +12,15 @@ type ISet interface {
 	ForEachWithBreaker(cb func(interface{}, func()))
 }
 
-type Set struct {
+type set struct {
 	m map[interface{}]bool
 }
 
-func NewSet() ISet {
-	return &Set{make(map[interface{}]bool)}
+func NewSet() Set {
+	return &set{make(map[interface{}]bool)}
 }
 
-func (s *Set) Add(data interface{}) bool {
+func (s *set) Add(data interface{}) bool {
 	if s.m[data] {
 		return false
 	}
@@ -28,7 +28,7 @@ func (s *Set) Add(data interface{}) bool {
 	return true
 }
 
-func (s *Set) Delete(data interface{}) bool {
+func (s *set) Delete(data interface{}) bool {
 	if s.m[data] {
 		delete(s.m, data)
 		return true
@@ -36,13 +36,13 @@ func (s *Set) Delete(data interface{}) bool {
 	return false
 }
 
-func (s *Set) Clear() {
+func (s *set) Clear() {
 	for k := range s.m {
 		delete(s.m, k)
 	}
 }
 
-func (s *Set) GetAll() []interface{} {
+func (s *set) GetAll() []interface{} {
 	var data []interface{}
 	for k, _ := range s.m {
 		data = append(data, k)
@@ -50,17 +50,17 @@ func (s *Set) GetAll() []interface{} {
 	return data
 }
 
-func (s *Set) Size() int {
+func (s *set) Size() int {
 	return len(s.m)
 }
 
-func (s *Set) ForEach(cb func(interface{})) {
+func (s *set) ForEach(cb func(interface{})) {
 	for k := range s.m {
 		cb(k)
 	}
 }
 
-func (s *Set) ForEachWithBreaker(cb func(interface{}, func())) {
+func (s *set) ForEachWithBreaker(cb func(interface{}, func())) {
 	shouldStop := false
 	stopper := func() {
 		shouldStop = true
@@ -75,7 +75,7 @@ func (s *Set) ForEachWithBreaker(cb func(interface{}, func())) {
 
 type SafeSet struct {
 	lock *sync.RWMutex
-	s    ISet
+	s    Set
 }
 
 func (s *SafeSet) withRead(cb func()) {
@@ -145,7 +145,7 @@ func (s *SafeSet) ForEachWithBreaker(cb func(interface{}, func())) {
 	}
 }
 
-func NewSafeSet() ISet {
+func NewSafeSet() Set {
 	return &SafeSet{
 		lock: new(sync.RWMutex),
 		s:    NewSet(),

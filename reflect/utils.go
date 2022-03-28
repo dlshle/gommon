@@ -106,10 +106,8 @@ func tryToGetSetterAndSet(object reflect.Value, fieldName string, value interfac
 		return false
 	}
 	mv.Call([]reflect.Value{reflect.ValueOf(value)})
-	if recover() != nil {
-		return false
-	}
-	return true
+
+	return recover() == nil
 }
 
 func SetValueOnField(o interface{}, fieldName string, value interface{}) error {
@@ -119,10 +117,8 @@ func SetValueOnField(o interface{}, fieldName string, value interface{}) error {
 	}
 	if v.CanSet() {
 		v.Set(reflect.ValueOf(value))
-	} else {
-		if !tryToGetSetterAndSet(reflect.ValueOf(o), fieldName, value) {
-			return fmt.Errorf("can not set field " + fieldName)
-		}
+	} else if !tryToGetSetterAndSet(reflect.ValueOf(o), fieldName, value) {
+		return fmt.Errorf("can not set field " + fieldName)
 	}
 	return nil
 }

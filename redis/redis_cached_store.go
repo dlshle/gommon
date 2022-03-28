@@ -11,7 +11,7 @@ const (
 	CacheMark = "RCS-mark"
 )
 
-type ISingleEntityStore interface {
+type SingleEntityStore interface {
 	Get(id string) (interface{}, error)
 	Update(id string, value interface{}) error
 	Create(id string, value interface{}) error
@@ -20,8 +20,8 @@ type ISingleEntityStore interface {
 	ToEntityType(map[string]string) (interface{}, error)
 }
 
-type RedisCachedStore struct {
-	store                 ISingleEntityStore
+type CachedStore struct {
+	store                 SingleEntityStore
 	cache                 *RedisClient
 	cacheOnCreate         bool
 	skipErrOnCacheFailure bool
@@ -29,11 +29,11 @@ type RedisCachedStore struct {
 	logger                *logger.SimpleLogger
 }
 
-func NewRedisCachedStore(logger *logger.SimpleLogger, store ISingleEntityStore, cache *RedisClient, cacheOnCreate bool, skipErrOnCacheFailure bool, writePolicy uint8) *RedisCachedStore {
+func NewRedisCachedStore(logger *logger.SimpleLogger, store SingleEntityStore, cache *RedisClient, cacheOnCreate bool, skipErrOnCacheFailure bool, writePolicy uint8) *CachedStore {
 	if writePolicy > CachePolicyWriteBack {
 		writePolicy = CachePolicyWriteBack
 	}
-	return &RedisCachedStore{
+	return &CachedStore{
 		store:                 store,
 		cache:                 cache,
 		cacheOnCreate:         cacheOnCreate,
@@ -43,11 +43,11 @@ func NewRedisCachedStore(logger *logger.SimpleLogger, store ISingleEntityStore, 
 	}
 }
 
-func (s *RedisCachedStore) Ping() error {
+func (s *CachedStore) Ping() error {
 	return s.cache.Ping()
 }
 
-func (s *RedisCachedStore) ToHashMap(entity interface{}) (map[string]interface{}, error) {
+func (s *CachedStore) ToHashMap(entity interface{}) (map[string]interface{}, error) {
 	m, e := s.store.ToHashMap(entity)
 	if e != nil {
 		return nil, e
@@ -56,7 +56,7 @@ func (s *RedisCachedStore) ToHashMap(entity interface{}) (map[string]interface{}
 	return m, e
 }
 
-func (s *RedisCachedStore) checkAndGet(id string) (map[string]string, error) {
+func (s *CachedStore) checkAndGet(id string) (map[string]string, error) {
 	err := s.cache.HExists(id, CacheMark)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (s *RedisCachedStore) checkAndGet(id string) (map[string]string, error) {
 	return s.cache.HGet(id)
 }
 
-func (s *RedisCachedStore) Get(id string) (entity interface{}, err error) {
+func (s *CachedStore) Get(id string) (entity interface{}, err error) {
 	var m map[string]string
 	m, err = s.checkAndGet(id)
 	if err == nil {
@@ -94,7 +94,7 @@ func (s *RedisCachedStore) Get(id string) (entity interface{}, err error) {
 	return s.store.ToEntityType(m)
 }
 
-func (s *RedisCachedStore) Update(id string, value interface{}) error {
+func (s *CachedStore) Update(id string, value interface{}) error {
 	m, err := s.ToHashMap(value)
 	if err != nil {
 		return err
@@ -107,29 +107,29 @@ func (s *RedisCachedStore) Update(id string, value interface{}) error {
 	}
 }
 
-func (s *RedisCachedStore) writeThroughSet(id string, entity interface{}, m map[string]interface{}) (err error) {
+func (s *CachedStore) writeThroughSet(id string, entity interface{}, m map[string]interface{}) (err error) {
 	return s.writeThroughAction(func() error { return s.store.Update(id, entity) }, func() error { return s.cache.HSet(id, m) })
 }
 
-func (s *RedisCachedStore) writeBackSet(id string, entity interface{}, m map[string]interface{}) (err error) {
+func (s *CachedStore) writeBackSet(id string, entity interface{}, m map[string]interface{}) (err error) {
 	return s.writeBackAction(func() error { return s.store.Update(id, entity) }, func() error { return s.cache.HSet(id, m) })
 }
 
-func (s *RedisCachedStore) writeThroughAction(storeAction func() error, cacheAction func() error) error {
+func (s *CachedStore) writeThroughAction(storeAction func() error, cacheAction func() error) error {
 	if err := cacheAction(); err != nil {
 		return err
 	}
 	return storeAction()
 }
 
-func (s *RedisCachedStore) writeBackAction(storeAction func() error, cacheAction func() error) error {
+func (s *CachedStore) writeBackAction(storeAction func() error, cacheAction func() error) error {
 	if err := storeAction(); err != nil {
 		return err
 	}
 	return cacheAction()
 }
 
-func (s *RedisCachedStore) Create(id string, value interface{}) (err error) {
+func (s *CachedStore) Create(id string, value interface{}) (err error) {
 	if err = s.store.Create(id, value); err != nil {
 		return
 	}
@@ -143,7 +143,7 @@ func (s *RedisCachedStore) Create(id string, value interface{}) (err error) {
 	return nil
 }
 
-func (s *RedisCachedStore) cacheSafeDelete(key string) error {
+func (s *CachedStore) cacheSafeDelete(key string) error {
 	err := s.Delete(key)
 	if err != nil && err.Error() == ErrNotFoundStr {
 		return nil
@@ -151,7 +151,7 @@ func (s *RedisCachedStore) cacheSafeDelete(key string) error {
 	return err
 }
 
-func (s *RedisCachedStore) Delete(id string) error {
+func (s *CachedStore) Delete(id string) error {
 	switch s.writePolicy {
 	case CachePolicyWriteThrough:
 		return s.writeThroughAction(func() error { return s.store.Delete(id) }, func() error { return s.cacheSafeDelete(id) })

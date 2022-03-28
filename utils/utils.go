@@ -123,3 +123,12 @@ func GetIpAddrAndPort(remoteAddr string) (res [2]string, err error) {
 	err = fmt.Errorf("invalid remote addr format(%s)", remoteAddr)
 	return
 }
+
+func IsStringsNotEmpty(targets ...string) bool {
+  for _, str := range targets {
+    if str == "" {
+      return false
+    }
+  }
+  return true
+}

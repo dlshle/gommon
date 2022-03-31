@@ -3,6 +3,7 @@ package test_utils
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -16,6 +17,7 @@ type Assertion struct {
 	next                  *Assertion
 	numRuns               int
 	runMultipleInParallel bool
+	noAssertionLog        bool
 }
 
 type IAssertable interface {
@@ -24,6 +26,7 @@ type IAssertable interface {
 	Then(id string, description string, assertion func() bool) IAssertable // next
 	Cases(cases []*Assertion) IAssertable
 	WithMultiple(numRuns int, parallel bool) IAssertable
+	NoAssertionLog() IAssertable
 	Do(t *testing.T)
 }
 
@@ -100,6 +103,11 @@ func (a *Assertion) Then(id string, description string, assertion func() bool) I
 	return a.next
 }
 
+func (a *Assertion) NoAssertionLog() IAssertable {
+	a.noAssertionLog = true
+	return a
+}
+
 func (a *Assertion) Cases(cases []*Assertion) IAssertable {
 	curr := a
 	for _, c := range cases {
@@ -149,22 +157,31 @@ func (a *Assertion) Do(t *testing.T) {
 }
 
 func (a *Assertion) doAssertion(t *testing.T, indent int, node *Assertion) {
-	runner := func(indent int) {
-		assertCase(t, indent, node.id, node.description, node.assertion)
+	runner := func(indent int) bool {
+		if a.noAssertionLog {
+			return assertCase(nil, indent, node.id, node.description, node.assertion)
+		} else {
+			return assertCase(t, indent, node.id, node.description, node.assertion)
+		}
 	}
 	if node.numRuns > 0 {
 		var runnerModeStr string
 		var wg sync.WaitGroup
 		inParallel := node.runMultipleInParallel
+		var multiCaseSucceedCounter int32 = 0
 		doRunner := func(indent int) {
 			if inParallel {
 				wg.Add(1)
 				go func() {
-					runner(indent)
+					if runner(indent) {
+						atomic.AddInt32(&multiCaseSucceedCounter, 1)
+					}
 					wg.Done()
 				}()
 			} else {
-				runner(indent)
+				if runner(indent) {
+					multiCaseSucceedCounter++
+				}
 			}
 		}
 		if inParallel {
@@ -180,15 +197,27 @@ func (a *Assertion) doAssertion(t *testing.T, indent int, node *Assertion) {
 		if inParallel {
 			wg.Wait()
 		}
+		indent -= 4
+		if node.numRuns > 1 {
+			t.Logf("%sMutiple case success rate report: (%d/%d = %g)",
+				indents(indent),
+				multiCaseSucceedCounter,
+				node.numRuns,
+				float64(multiCaseSucceedCounter)/float64(node.numRuns))
+		}
 	} else {
 		runner(indent)
 	}
 }
 
-func assertCase(t *testing.T, indent int, id string, desc string, assertion func() bool) {
-	if assertion() {
-		t.Logf("%s✅ %s passed\n", indents(indent), id)
-	} else {
-		t.Errorf("%s❌ %s(%s) failed\n", indents(indent), id, desc)
+func assertCase(t *testing.T, indent int, id string, desc string, assertion func() bool) bool {
+	res := assertion()
+	if t != nil {
+		if res {
+			t.Logf("%s✅ %s passed\n", indents(indent), id)
+		} else {
+			t.Errorf("%s❌ %s(%s) failed\n", indents(indent), id, desc)
+		}
 	}
+	return res
 }

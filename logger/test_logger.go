@@ -1,6 +1,8 @@
 package logger
 
-import "testing"
+import (
+	"testing"
+)
 
 func NewTestLogger(t *testing.T) *SimpleLogger {
 	return New(testLoggerWriterWrapper{
@@ -13,6 +15,6 @@ type testLoggerWriterWrapper struct {
 }
 
 func (l testLoggerWriterWrapper) Write(p []byte) (int, error) {
-	l.t.Logf("%s", string(p))
+	l.t.Log(string(p))
 	return 0, nil
 }

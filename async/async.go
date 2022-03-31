@@ -3,10 +3,11 @@ package async
 import (
 	"context"
 	"fmt"
+	"github.com/dlshle/gommon/logger"
+	"github.com/dlshle/gommon/stringz"
 	"os"
 	"sync"
 	"sync/atomic"
-	"github.com/dlshle/gommon/logger"
 )
 
 const (
@@ -110,7 +111,7 @@ func (p *asyncPool) setStatus(status byte) {
 	defer p.rwLock.Unlock()
 	if status >= 0 && status < 4 {
 		p.status = status
-		p.logger.Printf("Pool status has transited to %d\n", status)
+		p.logger.Output(1, stringz.Builder().String("Pool status has transitioned to ").Byte(status).BuildL())
 	}
 	return
 }
@@ -130,7 +131,12 @@ func (p *asyncPool) runWorker(index int32) {
 		case task, isOpen := <-p.channel:
 			// simply take task and work on it sequentially
 			if isOpen {
-				p.logger.Printf("Worker %d has acquired task %p\n", index, task)
+				p.logger.Print(stringz.Builder().
+					String("Worker ").
+					Int32(index).
+					String(" has acquired task ").
+					Pointer(task).
+					BuildL())
 				task()
 			} else {
 				shouldContinue = false
@@ -144,13 +150,13 @@ func (p *asyncPool) runWorker(index int32) {
 		}
 	}
 	p.decrementNumStartedWorkers()
-	p.logger.Printf("Worker %d terminated\n", index)
+	p.logger.Output(1, stringz.Builder().String("Worker ").Int32(index).String(" terminated").BuildL())
 	p.stopWaitGroup.Done()
 }
 
 func (p *asyncPool) tryAddAndRunWorker() {
 	if p.getStatus() > RUNNING {
-		p.logger.Println("status is terminating or terminated, can not add new worker")
+		p.logger.Output(1, "status is terminating or terminated, can not add new worker\n")
 		return
 	}
 	if p.NumPendingTasks() > 0 && p.NumStartedWorkers() < p.NumMaxWorkers() {
@@ -163,7 +169,7 @@ func (p *asyncPool) addAndRunWorker() {
 	p.stopWaitGroup.Add(1)
 	// of course worker runs on its own goroutine
 	go p.runWorker(p.incrementAndGetNumStartedWorkers())
-	p.logger.Printf("worker %d has been started", p.numStartedWorkers)
+	p.logger.Output(1, stringz.Builder().String("worker %d has been started").Int32(p.numStartedWorkers).BuildL())
 }
 
 func (p *asyncPool) start() {
@@ -175,7 +181,7 @@ func (p *asyncPool) start() {
 
 func (p *asyncPool) Stop() {
 	if !p.HasStarted() {
-		p.logger.Println("Warn pool has not started")
+		p.logger.Output(1, "Warn: pool has not started\n")
 		return
 	}
 	close(p.channel)

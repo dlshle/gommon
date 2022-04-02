@@ -34,6 +34,7 @@ type StringBuilder interface {
 	Float64(float64) StringBuilder
 	Byte(byte) StringBuilder
 	Bool(bool) StringBuilder
+	Stringify(Stringify) StringBuilder
 	Build() string
 	BuildL() string
 }
@@ -120,25 +121,36 @@ func (b *stringBuilder) Pointer(v interface{}) StringBuilder {
 	return b
 }
 
+func (b *stringBuilder) Stringify(s Stringify) StringBuilder {
+	b.builder.WriteString(s.String())
+	return b
+}
+
 func (b *stringBuilder) Build() string {
 	defer func() {
+		b.builder.Reset()
 		pool.Put(b)
 	}()
 	return b.builder.String()
 }
 
 func (b *stringBuilder) BuildL() string {
-	defer func() {
-		pool.Put(b)
-	}()
 	b.Byte('\n')
-	return b.builder.String()
+	return b.Build()
 }
 
 func ConcatString(strings ...string) string {
 	builder := Builder()
 	for _, str := range strings {
 		builder.String(str)
+	}
+	return builder.Build()
+}
+
+func ConcatStringify(stringifys ...Stringify) string {
+	builder := Builder()
+	for _, strify := range stringifys {
+		builder.Stringify(strify)
 	}
 	return builder.Build()
 }

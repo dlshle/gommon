@@ -153,7 +153,7 @@ func (a *Assertion) Do(t *testing.T) {
 		}
 		curr = curr.next
 	}
-	t.Log("All test finished, overall runtime: ", time.Now().Sub(startTime))
+	t.Log("All test finished, overall runtime: ", time.Since(startTime))
 }
 
 func (a *Assertion) doAssertion(t *testing.T, indent int, node *Assertion) {

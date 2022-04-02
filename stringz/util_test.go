@@ -12,25 +12,32 @@ func TestUtil(t *testing.T) {
 	doSilientTest := true
 	test_utils.NewTestGroup("stringz util", "").Cases([]*test_utils.Assertion{
 		test_utils.NewTestCase("benchmark stringz with others", "", func() bool {
+			var strStringz, strStringConcat, strSprintf string
 			stringzResult := performance.Measure(func() {
 				builder := Builder()
 				for i := 0; i < 1000; i++ {
-					builder.String("a").Byte('b').Int(3)
+					builder.String("asd").Byte('b').Int(3)
 				}
-				builder.Build()
+				strStringz = builder.Build()
 			})
 			stringConcatResult := performance.Measure(func() {
 				str := ""
 				for i := 0; i < 1000; i++ {
-					str += "a" + string('b') + strconv.Itoa(3)
+					str += "asd" + string('b') + strconv.Itoa(3)
 				}
+				strStringConcat = str
 			})
 			sprintfResult := performance.Measure(func() {
 				str := ""
 				for i := 0; i < 1000; i++ {
-					str = fmt.Sprintf("%s%s%b%d", str, "a", 'b', 3)
+					str = fmt.Sprintf("%s%s%b%d", str, "asd", 'b', 3)
 				}
+				strSprintf = str
 			})
+			if strStringz != strStringConcat && strStringz != strSprintf {
+				t.Logf("not equal!")
+				t.Fail()
+			}
 			// t.Logf("builderTime: %d, concatTime: %d, sprintfTime: %d", stringzResult.Nanoseconds(), stringConcatResult.Nanoseconds(), sprintfResult.Nanoseconds())
 			if !doSilientTest {
 				if stringzResult < stringConcatResult {
@@ -41,26 +48,29 @@ func TestUtil(t *testing.T) {
 				}
 			}
 			return stringzResult < stringConcatResult && stringzResult < sprintfResult
-		}).WithMultiple(1000, false).NoAssertionLog().(*test_utils.Assertion),
+		}).WithMultiple(100, true).NoAssertionLog().(*test_utils.Assertion),
 		test_utils.NewTestCase("short write benchmark", "", func() bool {
+			var strStringz, strStringConcat, strSprintf string
 			stringzResult := performance.Measure(func() {
 				builder := Builder()
 				for i := 0; i < 10; i++ {
-					builder.String("a").Byte('b').Int(3)
+					builder.String("asd").Byte('b').Int(3)
 				}
-				builder.Build()
+				strStringz = builder.Build()
 			})
 			stringConcatResult := performance.Measure(func() {
 				str := ""
 				for i := 0; i < 10; i++ {
-					str += "a" + string('b') + strconv.Itoa(3)
+					str += "asd" + string('b') + strconv.Itoa(3)
 				}
+				strStringConcat = str
 			})
 			sprintfResult := performance.Measure(func() {
 				str := ""
 				for i := 0; i < 10; i++ {
-					str = fmt.Sprintf("%s%s%b%d", str, "a", 'b', 3)
+					str = fmt.Sprintf("%s%s%b%d", str, "asd", 'b', 3)
 				}
+				strSprintf = str
 			})
 			if !doSilientTest {
 				if stringzResult < stringConcatResult {
@@ -70,8 +80,12 @@ func TestUtil(t *testing.T) {
 					t.Logf("stringz < sprint by %d", stringConcatResult-sprintfResult)
 				}
 			}
+			if strStringz != strStringConcat && strStringz != strSprintf {
+				t.Logf("not equal!")
+				t.Fail()
+			}
 			// t.Logf("builderTime: %d, concatTime: %d, sprintfTime: %d", stringzResult.Nanoseconds(), stringConcatResult.Nanoseconds(), sprintfResult.Nanoseconds())
 			return stringzResult < stringConcatResult && stringzResult < sprintfResult
-		}).WithMultiple(1000, false).NoAssertionLog().(*test_utils.Assertion),
+		}).WithMultiple(100, true).NoAssertionLog().(*test_utils.Assertion),
 	}).Do(t)
 }

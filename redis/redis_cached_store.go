@@ -7,8 +7,6 @@ import (
 const (
 	CachePolicyWriteThrough = 1
 	CachePolicyWriteBack    = 2
-
-	CacheMark = "RCS-mark"
 )
 
 type SingleEntityStore interface {
@@ -52,21 +50,23 @@ func (s *CachedStore) ToHashMap(entity interface{}) (map[string]interface{}, err
 	if e != nil {
 		return nil, e
 	}
-	m[CacheMark] = true
 	return m, e
 }
 
-func (s *CachedStore) checkAndGet(id string) (map[string]string, error) {
-	err := s.cache.HExists(id, CacheMark)
+func (s *CachedStore) Has(id string) (bool, error) {
+	err := s.cache.HExists(id, "id")
 	if err != nil {
-		return nil, err
+		if err.Error() == ErrNotFoundStr {
+			return false, nil
+		}
+		return false, err
 	}
-	return s.cache.HGet(id)
+	return true, nil
 }
 
 func (s *CachedStore) Get(id string) (entity interface{}, err error) {
 	var m map[string]string
-	m, err = s.checkAndGet(id)
+	m, err = s.cache.HGet(id)
 	if err == nil {
 		s.logger.Printf("Fetch %s hit", id)
 	}

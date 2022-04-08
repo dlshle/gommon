@@ -74,7 +74,8 @@ func (s *CachedStore) Get(id string) (entity interface{}, err error) {
 		// conn error
 		return
 	}
-	if err != nil && err.Error() == ErrNotFoundStr {
+	// hget does not return NotFoundErr but an empty map
+	if err != nil && err.Error() == ErrNotFoundStr || m["id"] == "" {
 		s.logger.Printf("Fetch %s miss", id)
 		entity, err = s.store.Get(id)
 		if err != nil {

@@ -30,8 +30,8 @@ type Request = http.Request
 var globalLogger = logger.New(os.Stdout, "[NetworkClient]", true)
 
 // request status error message_dispatcher
-var requestStatusErrorStringMap map[int]string
-var requestStatusErrorCodeMap map[int]int
+var requestStatusErrorStringMap map[int32]string
+var requestStatusErrorCodeMap map[int32]int
 
 // trackableRequest Status
 const (
@@ -47,8 +47,8 @@ var randomGenerator = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 // init
 func initRequestStatusErrorMaps() {
-	requestStatusErrorCodeMap = make(map[int]int)
-	requestStatusErrorStringMap = make(map[int]string)
+	requestStatusErrorCodeMap = make(map[int32]int)
+	requestStatusErrorStringMap = make(map[int32]string)
 	requestStatusErrorStringMap[RequestStatusInProgress] = "Handle is in progress"
 	requestStatusErrorCodeMap[RequestStatusInProgress] = ErrRequestInProgress
 	requestStatusErrorStringMap[RequestStatusCancelled] = "Handle is cancelled"
@@ -261,55 +261,46 @@ func cancelledResponse() *Response {
 
 type trackableRequest struct {
 	id       string
-	status   int
+	status   int32
 	request  *http.Request
 	response *awaitableResponse
-	rwMutex  *sync.RWMutex
 }
 
 type TrackableRequest interface {
 	Id() string
-	Status() int
+	Status() int32
 	Update(request *http.Request) error
 	Cancel() error
 	Response() *Response
 	getRequest() *http.Request
-	setStatus(status int)
+	setStatus(status int32)
 }
 
 func NewTrackableRequest(request *http.Request) TrackableRequest {
 	id := strconv.FormatInt(randomGenerator.Int63n(time.Now().Unix()), 16)
-	return &trackableRequest{id, RequestStatusIdle, request, newAwaitableResponse(), new(sync.RWMutex)}
+	return &trackableRequest{id, RequestStatusIdle, request, newAwaitableResponse()}
 }
 
 func (tr *trackableRequest) Id() string {
 	return tr.id
 }
 
-func (tr *trackableRequest) Status() int {
-	tr.rwMutex.RLock()
-	defer tr.rwMutex.RUnlock()
-	return tr.status
+func (tr *trackableRequest) Status() int32 {
+	return atomic.LoadInt32(&tr.status)
 }
 
-func (tr *trackableRequest) setStatus(status int) {
-	tr.rwMutex.Lock()
-	defer tr.rwMutex.Unlock()
-	tr.status = status
+func (tr *trackableRequest) setStatus(status int32) {
+	atomic.StoreInt32(&tr.status, status)
 }
 
 func (tr *trackableRequest) getRequest() *http.Request {
-	tr.rwMutex.RLock()
-	defer tr.rwMutex.RUnlock()
 	return tr.request
 }
 
 func (tr *trackableRequest) Update(request *http.Request) error {
 	status := tr.Status()
 	if status <= RequestStatusWaiting {
-		tr.rwMutex.Lock()
 		tr.request = request
-		tr.rwMutex.Unlock()
 		return nil
 	}
 	return NewClientError("Unable to update request due to "+requestStatusErrorStringMap[status], requestStatusErrorCodeMap[status])
@@ -318,10 +309,8 @@ func (tr *trackableRequest) Update(request *http.Request) error {
 func (tr *trackableRequest) Cancel() error {
 	status := tr.Status()
 	if status <= RequestStatusWaiting {
-		tr.rwMutex.Lock()
 		tr.status = RequestStatusCancelled
 		tr.response.resolve(cancelledResponse())
-		tr.rwMutex.Unlock()
 		return nil
 	}
 	return NewClientError("Unable to update request due to "+requestStatusErrorStringMap[status], requestStatusErrorCodeMap[status])

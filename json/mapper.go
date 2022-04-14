@@ -1,6 +1,7 @@
 package json
 
 import (
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -101,9 +102,160 @@ func (j *jsonMapper) StringMap() map[string]string {
 				m[k] = "null"
 			}
 			break
+		default:
+			if reflect.TypeOf(v).Kind() == reflect.Slice {
+				m[k] = j.toListString(v)
+			}
 		}
 	}
 	return m
+}
+
+func (j *jsonMapper) toListString(v interface{}) string {
+	var builder strings.Builder
+	builder.WriteByte('[')
+	switch v.(type) {
+	case []string:
+		counter := 0
+		segment := v.([]string)
+		l := len(segment)
+		for _, str := range v.([]string) {
+			builder.WriteByte('"')
+			builder.WriteString(str)
+			builder.WriteByte('"')
+			counter++
+			if counter < l {
+				builder.WriteByte(',')
+			}
+		}
+		break
+	case []int:
+		counter := 0
+		segment := v.([]int)
+		l := len(segment)
+		for _, e := range segment {
+			builder.WriteString(strconv.Itoa(e))
+			counter++
+			if counter < l {
+				builder.WriteByte(',')
+			}
+		}
+		break
+	case []int32:
+		counter := 0
+		segment := v.([]int32)
+		l := len(segment)
+		for _, e := range segment {
+			builder.WriteString(strconv.FormatInt(int64(e), 10))
+			counter++
+			if counter < l {
+				builder.WriteByte(',')
+			}
+		}
+		break
+	case []int64:
+		counter := 0
+		segment := v.([]int64)
+		l := len(segment)
+		for _, e := range segment {
+			builder.WriteString(strconv.FormatInt(e, 10))
+			counter++
+			if counter < l {
+				builder.WriteByte(',')
+			}
+		}
+		break
+	case []uint:
+		counter := 0
+		segment := v.([]uint)
+		l := len(segment)
+		for _, e := range segment {
+			builder.WriteString(strconv.FormatUint(uint64(e), 10))
+			counter++
+			if counter < l {
+				builder.WriteByte(',')
+			}
+		}
+		break
+	case []uint32:
+		counter := 0
+		segment := v.([]uint32)
+		l := len(segment)
+		for _, e := range segment {
+			builder.WriteString(strconv.FormatUint(uint64(e), 10))
+			counter++
+			if counter < l {
+				builder.WriteByte(',')
+			}
+		}
+		break
+	case []uint64:
+		counter := 0
+		segment := v.([]uint64)
+		l := len(segment)
+		for _, e := range segment {
+			builder.WriteString(strconv.FormatUint(e, 10))
+			counter++
+			if counter < l {
+				builder.WriteByte(',')
+			}
+		}
+		break
+	case []float32:
+		counter := 0
+		segment := v.([]float32)
+		l := len(segment)
+		for _, e := range segment {
+			builder.WriteString(strconv.FormatFloat(float64(e), 'f', j.floatPrecision, 32))
+			counter++
+			if counter < l {
+				builder.WriteByte(',')
+			}
+		}
+		break
+	case []float64:
+		counter := 0
+		segment := v.([]float64)
+		l := len(segment)
+		for _, e := range segment {
+			builder.WriteString(strconv.FormatFloat(e, 'f', j.floatPrecision, 32))
+			counter++
+			if counter < l {
+				builder.WriteByte(',')
+			}
+		}
+		break
+	case []bool:
+		counter := 0
+		segment := v.([]bool)
+		l := len(segment)
+		for _, b := range segment {
+			if b {
+				builder.WriteString("true")
+			} else {
+				builder.WriteString("false")
+			}
+			counter++
+			if counter < l {
+				builder.WriteByte(',')
+			}
+		}
+		break
+	case []Mapper:
+		counter := 0
+		segment := v.([]Mapper)
+		l := len(segment)
+		for _, str := range v.([]Mapper) {
+			builder.WriteString(str.ToString())
+			counter++
+			if counter < l {
+				builder.WriteByte(',')
+			}
+		}
+		break
+	}
+	builder.WriteByte(']')
+	return builder.String()
 }
 
 func (j *jsonMapper) ToString() string {

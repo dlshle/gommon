@@ -139,18 +139,18 @@ func (b *stringBuilder) BuildL() string {
 	return b.Build()
 }
 
-func ConcatString(strings ...string) string {
-	builder := Builder()
-	for _, str := range strings {
-		builder.String(str)
+func ConcatString(strs ...string) string {
+	var builder strings.Builder
+	for _, str := range strs {
+		builder.WriteString(str)
 	}
-	return builder.Build()
+	return builder.String()
 }
 
 func ConcatStringify(stringifys ...Stringify) string {
-	builder := Builder()
+	var builder strings.Builder
 	for _, strify := range stringifys {
-		builder.Stringify(strify)
+		builder.WriteString(strify.String())
 	}
-	return builder.Build()
+	return builder.String()
 }

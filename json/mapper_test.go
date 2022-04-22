@@ -24,10 +24,14 @@ func TestJsonMapper(t *testing.T) {
 			for i := 0; i < 5; i++ {
 				listOfMappers[i] = listOfBoxes[i].toJsonMap()
 			}
+			listOfInt := make([]interface{}, 5, 5)
+			for i := 0; i < 5; i++ {
+				listOfInt[i] = listOfMappers[i]
+			}
 			m := NewJSONMapper()
 			m.Field("hello", "world").Field("a", true).Field("b", uint32(321423)).Field("c", 123213.342304).FloatPrecision(1).Field("omitted", nil).OmitNilValue(true)
 			mm := NewJSONMapper()
-			str := mm.Field("o", m).Field("list", []string{"a", "b"}).Field("mapList", listOfMappers).Field("emptyList", []float32{}).Field("ending", true).Field("someNil", nil).Field("omitted", "").OmitEmptyStringValue(true).ToString()
+			str := mm.Field("o", m).Field("list", []string{"a", "b"}).Field("mapList", listOfInt).Field("listOfMappters", listOfMappers).Field("emptyList", []float32{}).Field("ending", true).Field("someNil", nil).Field("omitted", "").OmitEmptyStringValue(true).ToString()
 			t.Logf(str)
 			return false
 		}),

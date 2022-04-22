@@ -8,6 +8,14 @@ import (
 	"testing"
 )
 
+type Box struct {
+	b string
+}
+
+func (b Box) String() string {
+	return b.b
+}
+
 func TestUtil(t *testing.T) {
 	doSilientTest := true
 	test_utils.NewTestGroup("stringz util", "").Cases([]*test_utils.Assertion{
@@ -87,5 +95,12 @@ func TestUtil(t *testing.T) {
 			// t.Logf("builderTime: %d, concatTime: %d, sprintfTime: %d", stringzResult.Nanoseconds(), stringConcatResult.Nanoseconds(), sprintfResult.Nanoseconds())
 			return stringzResult < stringConcatResult && stringzResult < sprintfResult
 		}).WithMultiple(100, true).NoAssertionLog().(*test_utils.Assertion),
+		test_utils.NewTestCase("util test", "", func() bool {
+			b0 := Box{"a"}
+			b1 := Box{"b"}
+			res1 := ConcatString("a", "b")
+			res2 := ConcatStringify(b0, b1)
+			return res1 == res2 && res1 == "ab"
+		}),
 	}).Do(t)
 }

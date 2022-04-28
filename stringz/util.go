@@ -154,3 +154,39 @@ func ConcatStringify(stringifys ...Stringify) string {
 	}
 	return builder.String()
 }
+
+func NativeToString(v interface{}) string {
+	switch v.(type) {
+	case string:
+		return v.(string)
+	case int:
+		return strconv.Itoa(v.(int))
+	case int32:
+		return strconv.FormatInt(int64(v.(int32)), 10)
+	case int64:
+		return strconv.FormatInt(v.(int64), 10)
+	case uint:
+		return strconv.FormatUint(uint64(v.(uint)), 10)
+	case uint32:
+		return strconv.FormatUint(uint64(v.(uint32)), 10)
+	case uint64:
+		return strconv.FormatUint(v.(uint64), 10)
+	case float32:
+		return strconv.FormatFloat(float64(v.(float32)), 'f', 10, 32)
+	case float64:
+		return strconv.FormatFloat(v.(float64), 'f', 10, 64)
+	case bool:
+		bv := v.(bool)
+		if bv {
+			return "true"
+		} else {
+			return "false"
+		}
+	case nil:
+		return "null"
+	case Stringify:
+		return v.(Stringify).String()
+	default:
+		return ""
+	}
+}

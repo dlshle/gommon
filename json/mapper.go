@@ -1,6 +1,7 @@
 package json
 
 import (
+	"github.com/dlshle/gommon/stringz"
 	"reflect"
 	"strconv"
 	"strings"
@@ -102,9 +103,14 @@ func (j *jsonMapper) StringMap() map[string]string {
 				m[k] = "null"
 			}
 			break
+		case stringz.Stringify:
+			m[k] = v.(stringz.Stringify).String()
+			break
 		default:
 			if reflect.TypeOf(v).Kind() == reflect.Slice {
 				m[k] = j.toListString(v)
+			} else if reflect.TypeOf(v).Kind() == reflect.Map {
+				// TODO unsupported
 			}
 		}
 	}
@@ -281,4 +287,12 @@ func (j *jsonMapper) ToString() string {
 
 func NewJSONMapper() Mapper {
 	return &jsonMapper{m: make(map[string]interface{}), floatPrecision: 5}
+}
+
+func FromEntityMap(m map[string]interface{}) Mapper {
+	mapper := NewJSONMapper()
+	for k, v := range m {
+		mapper.Field(k, v)
+	}
+	return mapper
 }

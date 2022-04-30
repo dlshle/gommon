@@ -2,34 +2,74 @@ package gr_context
 
 import (
 	"github.com/petermattis/goid"
-	"strconv"
 	"strings"
+	"sync"
 )
 
-// no need to use lock as operations are on the same goroutine
-var context = map[string]interface{}{}
+// a goroutine local context maintainer
+
+// no need to use lock on inner map(goroutine local map) as operations are on the same goroutine
+var context = map[int64]map[string]interface{}{}
+var mutex = new(sync.Mutex)
+
+func withLock(cb func()) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	cb()
+}
+
+func getGRContextMap() (cm map[string]interface{}) {
+	withLock(func() {
+		id := goid.Get()
+		cm = context[id]
+		if cm == nil {
+			cm = make(map[string]interface{})
+			context[id] = cm
+		}
+	})
+	return
+}
 
 func Put(key string, v interface{}) {
-	context[getGoID()+key] = v
+	getGRContextMap()[key] = v
 }
 
 func Get(key string) interface{} {
-	return context[getGoID()+key]
+	return getGRContextMap()[key]
+}
+
+func GetByPrefix(prefix string) map[string]interface{} {
+	m := getGRContextMap()
+	subSet := make(map[string]interface{})
+	for k := range m {
+		if strings.HasPrefix(k, prefix) {
+			subSet[k] = m[k]
+		}
+	}
+	return subSet
 }
 
 func Delete(key string) {
-	delete(context, getGoID()+key)
+	m := getGRContextMap()
+	delete(m, key)
 }
 
 func Clear() {
-	id := getGoID()
-	for k := range context {
-		if strings.HasPrefix(k, id) {
-			delete(context, k)
-		}
-	}
+	withLock(func() {
+		delete(context, goid.Get())
+	})
 }
 
-func getGoID() string {
-	return strconv.FormatInt(goid.Get(), 10)
+func ClearByPrefix(prefix string) {
+	withLock(func() {
+		m := context[goid.Get()]
+		if m == nil {
+			return
+		}
+		for k := range m {
+			if strings.HasPrefix(k, prefix) {
+				delete(m, k)
+			}
+		}
+	})
 }

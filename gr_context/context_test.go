@@ -14,8 +14,14 @@ func TestContext(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		fut := async.Run(func() {
 			Put("1", "1")
+			Put("o1", "1")
+			Put("o2", "1")
 			printCtx()
 			Delete("1")
+			ClearByPrefix("o")
+			if Get("o1") != nil {
+				t.Fail()
+			}
 		}, pool)
 		fut.Run()
 		waitQueue[i] = fut

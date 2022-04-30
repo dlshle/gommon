@@ -34,6 +34,7 @@ func NewLevelLogger(writer io.Writer, prefix string, format int, waterMark int) 
 		prefix:            prefix,
 		format:            format,
 		logLevelWaterMark: waterMark,
+		context:           make(map[string]string),
 	}
 }
 
@@ -47,8 +48,22 @@ func (l LevelLogger) output(level int, data ...string) {
 	builder.WriteString(timeDate)
 	builder.WriteRune(' ')
 	builder.WriteString(LogLevelPrefixMap[level])
-	builder.WriteRune('[')
+	builder.WriteRune(' ')
 	builder.WriteString(fileNLine)
+	builder.WriteRune(' ')
+	contexts := l.prepareContext()
+	ctxCnt := 0
+	ctxLen := len(contexts)
+	builder.WriteRune('[')
+	for k, v := range contexts {
+		builder.WriteString(k)
+		builder.WriteRune(':')
+		builder.WriteString(v)
+		ctxCnt++
+		if ctxCnt < ctxLen {
+			builder.WriteRune(';')
+		}
+	}
 	builder.WriteRune(']')
 	if l.prefix != "" {
 		builder.WriteString(l.prefix)
@@ -79,6 +94,17 @@ func (l LevelLogger) getFileName() string {
 	}
 	file = short
 	return file + ":" + strconv.Itoa(line)
+}
+
+func (l LevelLogger) prepareContext() map[string]string {
+	allContext := make(map[string]string)
+	for k, v := range l.context {
+		allContext[k] = v
+	}
+	for k, v := range getAll() {
+		allContext[k] = v
+	}
+	return allContext
 }
 
 func (l LevelLogger) Debug(records ...string) {

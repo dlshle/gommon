@@ -1,23 +1,38 @@
 package logger
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/dlshle/gommon/stringz"
 	"io"
 	"log"
+	"os"
+	"runtime"
+	"strconv"
+	"time"
 )
 
 type LevelLogger struct {
-	logger            *log.Logger
+	writer            io.Writer
 	format            int
 	prefix            string
 	logLevelWaterMark int
+	context           map[string]string
+}
+
+const LogAllWaterMark = -1
+
+var nilStringBytes = []byte{'n', 'i', 'l'}
+
+func StdOutLevelLogger(prefix string) Logger {
+	return NewLevelLogger(os.Stdout, prefix, log.LstdFlags|log.Lshortfile, LogAllWaterMark)
 }
 
 func NewLevelLogger(writer io.Writer, prefix string, format int, waterMark int) Logger {
 	return LevelLogger{
-		logger:            log.New(writer, prefix, format),
+		writer:            writer,
 		prefix:            prefix,
+		format:            format,
 		logLevelWaterMark: waterMark,
 	}
 }
@@ -26,16 +41,44 @@ func (l LevelLogger) output(level int, data ...string) {
 	if level < l.logLevelWaterMark {
 		return
 	}
+	var builder bytes.Buffer
+	fileNLine := l.getFileName()
+	timeDate := time.Now().Format(time.RFC3339)
+	builder.WriteString(timeDate)
+	builder.WriteRune(' ')
+	builder.WriteString(LogLevelPrefixMap[level])
+	builder.WriteRune('[')
+	builder.WriteString(fileNLine)
+	builder.WriteRune(']')
+	if l.prefix != "" {
+		builder.WriteString(l.prefix)
+	}
 	if data == nil {
-		l.logger.Output(1, "nil\n")
-		return
+		builder.Write(nilStringBytes)
+	} else if len(data) == 1 {
+		builder.WriteString(data[0])
+	} else {
+		builder.WriteString(stringz.ConcatString(data...))
 	}
-	if len(data) == 1 {
-		l.logger.Output(1, LogLevelPrefixMap[level]+data[0]+"\n")
-		return
+	builder.WriteRune('\n')
+	l.writer.Write(builder.Bytes())
+}
+
+func (l LevelLogger) getFileName() string {
+	_, file, line, ok := runtime.Caller(3)
+	if !ok {
+		file = "???"
+		line = 0
 	}
-	concatenatedData := stringz.ConcatString(data...)
-	l.logger.Output(1, LogLevelPrefixMap[level]+concatenatedData+"\n")
+	short := file
+	for i := len(file) - 1; i > 0; i-- {
+		if file[i] == '/' {
+			short = file[i+1:]
+			break
+		}
+	}
+	file = short
+	return file + ":" + strconv.Itoa(line)
 }
 
 func (l LevelLogger) Debug(records ...string) {
@@ -92,14 +135,23 @@ func (l LevelLogger) Prefix(prefix string) {
 
 func (l LevelLogger) Format(format int) {
 	l.format = format
-	l.logger.SetFlags(format)
 }
 
 // create new logger
 func (l LevelLogger) WithPrefix(prefix string) Logger {
-	return NewLevelLogger(l.logger.Writer(), prefix, l.format, l.logLevelWaterMark)
+	return NewLevelLogger(l.writer, prefix, l.format, l.logLevelWaterMark)
 }
 
 func (l LevelLogger) WithFormat(format int) Logger {
-	return NewLevelLogger(l.logger.Writer(), l.prefix, format, l.logLevelWaterMark)
+	return NewLevelLogger(l.writer, l.prefix, format, l.logLevelWaterMark)
+}
+
+func (l LevelLogger) WithContext(context map[string]string) Logger {
+	return LevelLogger{
+		writer:            l.writer,
+		prefix:            l.prefix,
+		format:            l.format,
+		logLevelWaterMark: l.logLevelWaterMark,
+		context:           context,
+	}
 }

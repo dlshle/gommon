@@ -516,9 +516,9 @@ func (c *httpClient) executeRequest(taggedLogger *logger.SimpleLogger, request *
 		response, err := fromRawResponse(rawResponse)
 		if err != nil {
 			taggedLogger.Printf("unable to parse response body of %+v.\n", rawResponse)
-			success = true
-		} else {
 			success = false
+		} else {
+			success = true
 		}
 		request.response.resolve(response)
 		taggedLogger.Printf("request(%s) has been resolved. Response: %+v.\n", request.id, response)

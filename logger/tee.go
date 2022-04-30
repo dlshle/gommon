@@ -16,7 +16,7 @@ func (tw *TeeWriter) Write(p []byte) (n int, err error) {
 	return 0, err
 }
 
-func NewTeeWriter(writers []io.Writer) *TeeWriter {
+func NewTeeWriter(writers ...io.Writer) *TeeWriter {
 	return &TeeWriter{
 		writers,
 	}

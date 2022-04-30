@@ -46,4 +46,6 @@ type Logger interface {
 	// create new logger
 	WithPrefix(prefix string) Logger
 	WithFormat(format int) Logger
+
+	WithContext(context map[string]string) Logger
 }

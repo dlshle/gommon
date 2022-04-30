@@ -1,7 +1,6 @@
 package http
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -489,25 +488,9 @@ func (c *httpClient) workerFunc(id int) {
 }
 
 func (c *httpClient) executeRequest(taggedLogger *logger.SimpleLogger, request *trackableRequest) (success bool) {
-	var (
-		requestByteBody []byte
-		err             error
-	)
 	request.setStatus(RequestStatusInProgress)
 	taggedLogger.Printf("worker has acquired request(%s, %d) with rawRequest %+v.", request.id, request.Status(), request.getRequest())
-	rawRequest := request.getRequest()
-	if rawRequest.Body != nil {
-		requestByteBody, err = ioutil.ReadAll(rawRequest.Body)
-		if err == nil {
-			rawRequest.Body.Close()
-			rawRequest.Body = ioutil.NopCloser(bytes.NewReader(requestByteBody))
-		}
-	}
 	rawResponse, err := c.baseClient.Do(request.getRequest())
-	// to preserve request body
-	if rawRequest.Body != nil {
-		rawRequest.Body = ioutil.NopCloser(bytes.NewReader(requestByteBody))
-	}
 	if err != nil || rawResponse == nil {
 		taggedLogger.Printf("request failed due to %s, will resolve it with invalid response(-1).", err.Error())
 		request.response.resolve(invalidResponse("failed: "+err.Error(), -1))

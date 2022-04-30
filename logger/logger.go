@@ -48,4 +48,5 @@ type Logger interface {
 	WithFormat(format int) Logger
 
 	WithContext(context map[string]string) Logger
+	WithGRContextLogging(bool) Logger
 }

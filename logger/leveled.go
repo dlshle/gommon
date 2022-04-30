@@ -18,6 +18,7 @@ type LevelLogger struct {
 	prefix            string
 	logLevelWaterMark int
 	context           map[string]string
+	enableGRContext   bool
 }
 
 const LogAllWaterMark = -1
@@ -35,6 +36,7 @@ func NewLevelLogger(writer io.Writer, prefix string, format int, waterMark int) 
 		format:            format,
 		logLevelWaterMark: waterMark,
 		context:           make(map[string]string),
+		enableGRContext:   false,
 	}
 }
 
@@ -101,8 +103,10 @@ func (l LevelLogger) prepareContext() map[string]string {
 	for k, v := range l.context {
 		allContext[k] = v
 	}
-	for k, v := range getAll() {
-		allContext[k] = v
+	if l.enableGRContext {
+		for k, v := range getAll() {
+			allContext[k] = v
+		}
 	}
 	return allContext
 }
@@ -170,6 +174,17 @@ func (l LevelLogger) WithPrefix(prefix string) Logger {
 
 func (l LevelLogger) WithFormat(format int) Logger {
 	return NewLevelLogger(l.writer, l.prefix, format, l.logLevelWaterMark)
+}
+
+func (l LevelLogger) WithGRContextLogging(useGRCL bool) Logger {
+	return LevelLogger{
+		writer:            l.writer,
+		prefix:            l.prefix,
+		format:            l.format,
+		logLevelWaterMark: l.logLevelWaterMark,
+		context:           l.context,
+		enableGRContext:   useGRCL,
+	}
 }
 
 func (l LevelLogger) WithContext(context map[string]string) Logger {

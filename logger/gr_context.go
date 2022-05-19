@@ -21,7 +21,7 @@ func Get(k string) string {
 	return rawValue.(string)
 }
 
-func getAll() (res map[string]string) {
+func GetAll() (res map[string]string) {
 	res = make(map[string]string)
 	subset := gr_context.GetByPrefix(prefix)
 	for k, v := range subset {

@@ -52,21 +52,24 @@ func (l LevelLogger) output(level int, data ...string) {
 	builder.WriteString(LogLevelPrefixMap[level])
 	builder.WriteRune(' ')
 	builder.WriteString(fileNLine)
-	builder.WriteRune(' ')
+	// contexts
 	contexts := l.prepareContext()
-	ctxCnt := 0
 	ctxLen := len(contexts)
-	builder.WriteRune('[')
-	for k, v := range contexts {
-		builder.WriteString(k)
-		builder.WriteRune(':')
-		builder.WriteString(v)
-		ctxCnt++
-		if ctxCnt < ctxLen {
-			builder.WriteRune(';')
+	if ctxLen > 0 {
+		builder.WriteRune(' ')
+		ctxCnt := 0
+		builder.WriteRune('{')
+		for k, v := range contexts {
+			builder.WriteString(k)
+			builder.WriteRune(':')
+			builder.WriteString(v)
+			ctxCnt++
+			if ctxCnt < ctxLen {
+				builder.WriteRune(';')
+			}
 		}
+		builder.WriteRune('}')
 	}
-	builder.WriteRune(']')
 	if l.prefix != "" {
 		builder.WriteString(l.prefix)
 	}
@@ -104,7 +107,7 @@ func (l LevelLogger) prepareContext() map[string]string {
 		allContext[k] = v
 	}
 	if l.enableGRContext {
-		for k, v := range getAll() {
+		for k, v := range GetAll() {
 			allContext[k] = v
 		}
 	}

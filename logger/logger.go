@@ -1,5 +1,11 @@
 package logger
 
+import (
+	"bytes"
+	"io"
+	"time"
+)
+
 const (
 	TRACE = iota
 	DEBUG
@@ -49,4 +55,59 @@ type Logger interface {
 
 	WithContext(context map[string]string) Logger
 	WithGRContextLogging(bool) Logger
+}
+
+type LogEntity struct {
+	Level     int
+	Prefix    string
+	Context   map[string]string
+	Timestamp time.Time
+	Message   string
+	File      string
+}
+
+type LogWriter interface {
+	Write(entity *LogEntity)
+}
+
+type ConsoleLogWriter struct {
+	consoleWriter io.Writer
+}
+
+func NewConsoleLogWriter(writer io.Writer) LogWriter {
+	return ConsoleLogWriter{
+		writer,
+	}
+}
+
+func (w ConsoleLogWriter) Write(logEntity *LogEntity) {
+	var builder bytes.Buffer
+	builder.WriteString(logEntity.Timestamp.Format(time.RFC3339))
+	builder.WriteRune(' ')
+	builder.WriteString(LogLevelPrefixMap[logEntity.Level])
+	builder.WriteRune(' ')
+	builder.WriteString(logEntity.Prefix)
+	builder.WriteRune(' ')
+	builder.WriteString(logEntity.File)
+	// contexts
+	contexts := logEntity.Context
+	ctxLen := len(contexts)
+	if ctxLen > 0 {
+		builder.WriteRune(' ')
+		ctxCnt := 0
+		builder.WriteRune('{')
+		for k, v := range contexts {
+			builder.WriteString(k)
+			builder.WriteRune(':')
+			builder.WriteString(v)
+			ctxCnt++
+			if ctxCnt < ctxLen {
+				builder.WriteRune(';')
+			}
+		}
+		builder.WriteString("} ")
+	}
+	builder.WriteString(logEntity.Message)
+	builder.WriteRune('\n')
+	w.consoleWriter.Write(builder.Bytes())
 }

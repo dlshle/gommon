@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/dlshle/gommon/stringz"
 	"io"
-	"log"
 	"os"
 	"runtime"
 	"strconv"
@@ -13,12 +12,12 @@ import (
 )
 
 type LevelLogger struct {
-	writer            io.Writer
-	format            int
+	writer            LogWriter
 	prefix            string
 	logLevelWaterMark int
 	context           map[string]string
 	enableGRContext   bool
+	truncateLimit     int
 }
 
 const LogAllWaterMark = -1
@@ -26,17 +25,26 @@ const LogAllWaterMark = -1
 var nilStringBytes = []byte{'n', 'i', 'l'}
 
 func StdOutLevelLogger(prefix string) Logger {
-	return NewLevelLogger(os.Stdout, prefix, log.LstdFlags|log.Lshortfile, LogAllWaterMark)
+	return CreateLevelLogger(NewConsoleLogWriter(os.Stdout), prefix, LogAllWaterMark)
 }
 
 func NewLevelLogger(writer io.Writer, prefix string, format int, waterMark int) Logger {
 	return LevelLogger{
-		writer:            writer,
+		writer:            NewConsoleLogWriter(writer),
 		prefix:            prefix,
-		format:            format,
 		logLevelWaterMark: waterMark,
 		context:           make(map[string]string),
 		enableGRContext:   false,
+	}
+}
+
+func CreateLevelLogger(entityWriter LogWriter, prefix string, loggingMark int) Logger {
+	return LevelLogger{
+		writer:            entityWriter,
+		prefix:            prefix,
+		logLevelWaterMark: loggingMark,
+		context:           make(map[string]string),
+		enableGRContext:   true,
 	}
 }
 
@@ -45,34 +53,6 @@ func (l LevelLogger) output(level int, data ...string) {
 		return
 	}
 	var builder bytes.Buffer
-	fileNLine := l.getFileName()
-	timeDate := time.Now().Format(time.RFC3339)
-	builder.WriteString(timeDate)
-	builder.WriteRune(' ')
-	builder.WriteString(LogLevelPrefixMap[level])
-	builder.WriteRune(' ')
-	builder.WriteString(fileNLine)
-	// contexts
-	contexts := l.prepareContext()
-	ctxLen := len(contexts)
-	if ctxLen > 0 {
-		builder.WriteRune(' ')
-		ctxCnt := 0
-		builder.WriteRune('{')
-		for k, v := range contexts {
-			builder.WriteString(k)
-			builder.WriteRune(':')
-			builder.WriteString(v)
-			ctxCnt++
-			if ctxCnt < ctxLen {
-				builder.WriteRune(';')
-			}
-		}
-		builder.WriteRune('}')
-	}
-	if l.prefix != "" {
-		builder.WriteString(l.prefix)
-	}
 	if data == nil {
 		builder.Write(nilStringBytes)
 	} else if len(data) == 1 {
@@ -80,8 +60,15 @@ func (l LevelLogger) output(level int, data ...string) {
 	} else {
 		builder.WriteString(stringz.ConcatString(data...))
 	}
-	builder.WriteRune('\n')
-	l.writer.Write(builder.Bytes())
+	logEntity := &LogEntity{
+		Level:     level,
+		File:      l.getFileName(),
+		Timestamp: time.Now(),
+		Prefix:    l.prefix,
+		Context:   l.prepareContext(),
+		Message:   builder.String(),
+	}
+	l.writer.Write(logEntity)
 }
 
 func (l LevelLogger) getFileName() string {
@@ -103,6 +90,9 @@ func (l LevelLogger) getFileName() string {
 
 func (l LevelLogger) prepareContext() map[string]string {
 	allContext := make(map[string]string)
+	for k, v := range getGlobalContexts() {
+		allContext[k] = v
+	}
 	for k, v := range l.context {
 		allContext[k] = v
 	}
@@ -167,23 +157,22 @@ func (l LevelLogger) Prefix(prefix string) {
 }
 
 func (l LevelLogger) Format(format int) {
-	l.format = format
+	// no-op
 }
 
 // create new logger
 func (l LevelLogger) WithPrefix(prefix string) Logger {
-	return NewLevelLogger(l.writer, prefix, l.format, l.logLevelWaterMark)
+	return CreateLevelLogger(l.writer, prefix, l.logLevelWaterMark)
 }
 
 func (l LevelLogger) WithFormat(format int) Logger {
-	return NewLevelLogger(l.writer, l.prefix, format, l.logLevelWaterMark)
+	return CreateLevelLogger(l.writer, l.prefix, l.logLevelWaterMark)
 }
 
 func (l LevelLogger) WithGRContextLogging(useGRCL bool) Logger {
 	return LevelLogger{
 		writer:            l.writer,
 		prefix:            l.prefix,
-		format:            l.format,
 		logLevelWaterMark: l.logLevelWaterMark,
 		context:           l.context,
 		enableGRContext:   useGRCL,
@@ -194,7 +183,6 @@ func (l LevelLogger) WithContext(context map[string]string) Logger {
 	return LevelLogger{
 		writer:            l.writer,
 		prefix:            l.prefix,
-		format:            l.format,
 		logLevelWaterMark: l.logLevelWaterMark,
 		context:           context,
 	}

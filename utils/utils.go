@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"math/rand"
@@ -140,4 +141,22 @@ func EncodeBase64(data []byte) string {
 
 func DecodeBase64(encoded string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(encoded)
+}
+
+func StringMapToJSON(s map[string]string) string {
+	var buffer bytes.Buffer
+	buffer.WriteRune('{')
+	l := len(s)
+	counter := 0
+	for k, v := range s {
+		buffer.WriteRune('"')
+		buffer.WriteString(k)
+		buffer.WriteString("\":\"" + v + "\"")
+		if counter < l-1 {
+			buffer.WriteRune(',')
+		}
+		counter++
+	}
+	buffer.WriteRune('}')
+	return buffer.String()
 }

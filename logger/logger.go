@@ -2,7 +2,9 @@ package logger
 
 import (
 	"bytes"
+	"github.com/dlshle/gommon/utils"
 	"io"
+	"strconv"
 	"time"
 )
 
@@ -70,17 +72,17 @@ type LogWriter interface {
 	Write(entity *LogEntity)
 }
 
-type ConsoleLogWriter struct {
+type SimpleStringWriter struct {
 	consoleWriter io.Writer
 }
 
 func NewConsoleLogWriter(writer io.Writer) LogWriter {
-	return ConsoleLogWriter{
+	return SimpleStringWriter{
 		writer,
 	}
 }
 
-func (w ConsoleLogWriter) Write(logEntity *LogEntity) {
+func (w SimpleStringWriter) Write(logEntity *LogEntity) {
 	var builder bytes.Buffer
 	builder.WriteString(logEntity.Timestamp.Format(time.RFC3339))
 	builder.WriteRune(' ')
@@ -110,4 +112,44 @@ func (w ConsoleLogWriter) Write(logEntity *LogEntity) {
 	builder.WriteString(logEntity.Message)
 	builder.WriteRune('\n')
 	w.consoleWriter.Write(builder.Bytes())
+}
+
+type JSONWriter struct {
+	ioWriter io.Writer
+}
+
+func NewJSONWriter(ioWriter io.Writer) LogWriter {
+	return JSONWriter{
+		ioWriter: ioWriter,
+	}
+}
+
+func (w JSONWriter) Write(entity *LogEntity) {
+	w.ioWriter.Write(w.getJSONEntityBytes(entity))
+}
+
+func (w JSONWriter) getJSONEntityBytes(entity *LogEntity) []byte {
+	var builder bytes.Buffer
+	builder.WriteRune('{')
+	w.writeKVPair(builder, w.quoteWith("timestamp"), w.quoteWith(entity.Timestamp.Format(time.RFC3339)))
+	builder.WriteRune(',')
+	w.writeKVPair(builder, w.quoteWith("file"), w.quoteWith(entity.File))
+	builder.WriteRune(',')
+	w.writeKVPair(builder, w.quoteWith("level"), strconv.Itoa(entity.Level))
+	builder.WriteRune(',')
+	w.writeKVPair(builder, w.quoteWith("prefix"), w.quoteWith(entity.Prefix))
+	builder.WriteRune(',')
+	w.writeKVPair(builder, w.quoteWith("message"), w.quoteWith(entity.Message))
+	builder.WriteRune(',')
+	w.writeKVPair(builder, w.quoteWith("context"), utils.StringMapToJSON(entity.Context))
+	builder.WriteRune('}')
+	return builder.Bytes()
+}
+
+func (w JSONWriter) quoteWith(val string) string {
+	return "\"" + val + "\""
+}
+
+func (w JSONWriter) writeKVPair(b bytes.Buffer, k, v string) string {
+	return k + ":" + v
 }

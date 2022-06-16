@@ -1,33 +1,23 @@
-package optional
+// Package Optional Deprecated
+package Optional
 
-import "github.com/dlshle/gommon/errors"
+import (
+	"github.com/dlshle/gommon/errors"
+)
 
-var Empty = Of(nil)
-
-type Optional interface {
-	GetOrError() (interface{}, error)
-	GetOrPanic() interface{}
-	isPresent() bool
-	ifPresent(func(interface{}))
-	Filter(func(interface{}) bool) Optional
-	Map(func(val interface{}) interface{}) Optional
-	OrElse(interface{}) interface{}
-	OrElseGet(func() interface{}) interface{}
-	OrElsePanic(interface{}) interface{}
+type Optional[T comparable] struct {
+	val      T
+	emptyVal T
 }
 
-type optional struct {
-	val interface{}
-}
-
-func (o *optional) GetOrError() (interface{}, error) {
-	if o.val == nil {
-		return nil, errors.Error("empty optional value")
+func (o Optional[T]) GetOrError() (T, error) {
+	if o.val == o.emptyVal {
+		return o.emptyVal, errors.Error("empty Optional value")
 	}
 	return o.val, nil
 }
 
-func (o *optional) GetOrPanic() interface{} {
+func (o Optional[T]) GetOrPanic() T {
 	val, err := o.GetOrError()
 	if err != nil {
 		panic(err)
@@ -35,57 +25,57 @@ func (o *optional) GetOrPanic() interface{} {
 	return val
 }
 
-func (o *optional) isPresent() bool {
-	return o.val != nil
+func (o Optional[T]) IsPresent() bool {
+	return o.val != o.emptyVal
 }
 
-func (o *optional) ifPresent(thenFunc func(interface{})) {
-	if o.val == nil {
+func (o Optional[T]) IfPresent(thenFunc func(T)) {
+	if o.val == o.emptyVal {
 		return
 	}
 	thenFunc(o.val)
 }
 
-func (o *optional) Filter(filterFunc func(interface{}) bool) Optional {
-	if o.val == nil {
-		return Empty
+func (o Optional[T]) Filter(filterFunc func(T) bool) Optional[T] {
+	if o.val == o.emptyVal {
+		return Of(o.emptyVal)
 	}
 	if filterFunc(o.val) {
 		return o
 	}
-	return Empty
+	return Of(o.emptyVal)
 }
 
-func (o *optional) Map(mappingFunc func(val interface{}) interface{}) Optional {
-	if o.val == nil {
-		return Empty
+func (o Optional[T]) Map(mappingFunc func(val T) T) Optional[T] {
+	if o.val == o.emptyVal {
+		return Of(o.emptyVal)
 	}
 	return Of(mappingFunc(o.val))
 }
 
-func (o *optional) OrElse(val interface{}) interface{} {
-	if o.val == nil {
+func (o Optional[T]) OrElse(val T) T {
+	if o.val == o.emptyVal {
 		return val
 	}
 	return o.val
 }
 
-func (o *optional) OrElseGet(getFunc func() interface{}) interface{} {
-	if o.val == nil {
+func (o Optional[T]) OrElseGet(getFunc func() T) T {
+	if o.val == o.emptyVal {
 		return getFunc()
 	}
 	return o.val
 }
 
-func (o *optional) OrElsePanic(panicVal interface{}) interface{} {
-	if o.val == nil {
-		panic("implement me")
+func (o Optional[T]) OrElsePanic(panicVal interface{}) T {
+	if o.val == o.emptyVal {
+		panic(panicVal)
 	}
 	return o.val
 }
 
-func Of(val interface{}) Optional {
-	return &optional{
+func Of[T comparable](val T) Optional[T] {
+	return Optional[T]{
 		val: val,
 	}
 }

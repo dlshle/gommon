@@ -91,6 +91,7 @@ func (w SimpleStringWriter) Write(logEntity *LogEntity) {
 	builder.WriteString(logEntity.Prefix)
 	builder.WriteRune(' ')
 	builder.WriteString(logEntity.File)
+	builder.WriteRune(' ')
 	// contexts
 	contexts := logEntity.Context
 	ctxLen := len(contexts)

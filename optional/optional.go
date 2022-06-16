@@ -79,3 +79,7 @@ func Of[T comparable](val T) Optional[T] {
 		val: val,
 	}
 }
+
+func GetOrDefault[T comparable](val T, defaultVal T) T {
+	return Of(val).OrElse(defaultVal)
+}

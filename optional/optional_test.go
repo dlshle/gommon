@@ -13,4 +13,11 @@ func TestOptional(t *testing.T) {
 		return s + "!"
 	}).OrElse("empty")
 	t.Log(val)
+
+	type Box struct {
+		val string
+	}
+	Of(Box{"asd"}).Map(func(b Box) Box {
+		return Box{b.val + "!"}
+	}).OrElse(Box{"empty"})
 }

@@ -46,11 +46,19 @@ func (o Optional[T]) Filter(filterFunc func(T) bool) Optional[T] {
 	return Of(o.emptyVal)
 }
 
-func (o Optional[T]) Map(mappingFunc func(val T) T) Optional[T] {
+func (o Optional[T]) Transform(mappingFunc func(val T) T) Optional[T] {
 	if o.val == o.emptyVal {
 		return Of(o.emptyVal)
 	}
 	return Of(mappingFunc(o.val))
+}
+
+func Map[T, K comparable](optional Optional[T], mapper func(T) K) Optional[K] {
+	var zeroK K
+	if optional.IsPresent() {
+		return Of(mapper(optional.val))
+	}
+	return Of(zeroK)
 }
 
 func (o Optional[T]) OrElse(val T) T {
@@ -78,8 +86,4 @@ func Of[T comparable](val T) Optional[T] {
 	return Optional[T]{
 		val: val,
 	}
-}
-
-func GetOrDefault[T comparable](val T, defaultVal T) T {
-	return Of(val).OrElse(defaultVal)
 }

@@ -92,32 +92,32 @@ func DefaultClientError(msg string) *ClientError {
 }
 
 // HTTP Header
-type HeaderMaker struct {
+type headerMaker struct {
 	header http.Header
 }
 
-type IHeaderMaker interface {
-	Set(key string, value string) *HeaderMaker
-	Remove(key string) *HeaderMaker
-	Make() *http.Header
+type HeaderMaker interface {
+	Set(key string, value string) *headerMaker
+	Remove(key string) *headerMaker
+	Make() http.Header
 }
 
-func (m *HeaderMaker) Set(key string, value string) *HeaderMaker {
+func (m *headerMaker) Set(key string, value string) *headerMaker {
 	m.header.Set(key, value)
 	return m
 }
 
-func (m *HeaderMaker) Remove(key string) *HeaderMaker {
+func (m *headerMaker) Remove(key string) *headerMaker {
 	m.header.Del(key)
 	return m
 }
 
-func (m *HeaderMaker) Make() http.Header {
+func (m *headerMaker) Make() http.Header {
 	return m.header
 }
 
-func NewHeaderMaker() *HeaderMaker {
-	return &HeaderMaker{http.Header{}}
+func NewHeaderMaker() HeaderMaker {
+	return &headerMaker{http.Header{}}
 }
 
 // HTTP Body

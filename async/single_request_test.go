@@ -8,8 +8,8 @@ import (
 
 func TestSingleRequest(t *testing.T) {
 	requestGroup := NewRequestGroup()
-	test_utils.NewTestGroup("single request", "").Cases([]*test_utils.Assertion{
-		test_utils.NewTestCase("basic request", "", func() bool {
+	test_utils.NewGroup("single request", "").Cases(
+		test_utils.NewWithDescription("basic request", "", func() {
 			counter := 0
 			incr := func() (interface{}, error) {
 				time.Sleep(time.Second)
@@ -22,10 +22,9 @@ func TestSingleRequest(t *testing.T) {
 				}()
 			}
 			result, _ := requestGroup.Do("incr", incr)
-			t.Logf("result: %d, counter: %d", result, counter)
-			return result == counter && counter == 1
+			test_utils.AssertEquals(result.(int), counter)
 		}),
-		test_utils.NewTestCase("two continue requests", "", func() bool {
+		test_utils.NewWithDescription("two continue requests", "", func() {
 			counter := 0
 			incr := func() (interface{}, error) {
 				time.Sleep(time.Second)
@@ -44,10 +43,9 @@ func TestSingleRequest(t *testing.T) {
 				}()
 			}
 			result, _ := requestGroup.Do("incr", incr)
-			t.Logf("result: %d, counter: %d", result, counter)
-			return result == counter && counter == 2
+			test_utils.AssertEquals(result.(int), counter)
 		}),
-		test_utils.NewTestCase("two separate request", "", func() bool {
+		test_utils.NewWithDescription("two separate request", "", func() {
 			counter := 0
 			counter1 := 0
 			incr := func() (interface{}, error) {
@@ -71,8 +69,7 @@ func TestSingleRequest(t *testing.T) {
 				}()
 			}
 			requestGroup.Do("incr", incr)
-			t.Logf("counter: %d, counter1: %d", counter, counter1)
-			return counter == counter1 && counter == 1
+			test_utils.AssertEquals(counter, counter1)
 		}),
-	}).Do(t)
+	).Do(t)
 }

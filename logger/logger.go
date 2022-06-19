@@ -50,10 +50,12 @@ type Logger interface {
 
 	Prefix(prefix string)
 	Format(format int)
+	Writer(writer LogWriter)
 
 	// create new logger
 	WithPrefix(prefix string) Logger
 	WithFormat(format int) Logger
+	WithWriter(writer LogWriter) Logger
 
 	WithContext(context map[string]string) Logger
 	WithGRContextLogging(bool) Logger
@@ -154,3 +156,11 @@ func (w JSONWriter) quoteWith(val string) string {
 func (w JSONWriter) writeKVPair(b bytes.Buffer, k, v string) string {
 	return k + ":" + v
 }
+
+type NoopWriter struct{}
+
+func NewNoopWriter() NoopWriter {
+	return NoopWriter{}
+}
+
+func (w NoopWriter) Write(entity *LogEntity) {}

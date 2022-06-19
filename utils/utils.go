@@ -67,6 +67,14 @@ func SliceToSet(slice []interface{}) map[interface{}]bool {
 	return m
 }
 
+func TypedSliceToSet[T comparable](slice []T) map[T]bool {
+	m := make(map[T]bool)
+	for _, v := range slice {
+		m[v] = true
+	}
+	return m
+}
+
 func CopySet(set map[interface{}]bool) map[interface{}]bool {
 	c := make(map[interface{}]bool)
 	for k, v := range set {

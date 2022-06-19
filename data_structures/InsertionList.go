@@ -2,7 +2,7 @@ package data_structures
 
 import "sync"
 
-// quick add/removal of comparables
+// quick add/removal of comparable
 
 type InsertionList interface {
 	Get(index int) IComparable

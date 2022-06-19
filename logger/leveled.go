@@ -160,6 +160,10 @@ func (l LevelLogger) Format(format int) {
 	// no-op
 }
 
+func (l LevelLogger) Writer(writer LogWriter) {
+	l.writer = writer
+}
+
 // create new logger
 func (l LevelLogger) WithPrefix(prefix string) Logger {
 	return CreateLevelLogger(l.writer, prefix, l.logLevelWaterMark)
@@ -167,6 +171,10 @@ func (l LevelLogger) WithPrefix(prefix string) Logger {
 
 func (l LevelLogger) WithFormat(format int) Logger {
 	return CreateLevelLogger(l.writer, l.prefix, l.logLevelWaterMark)
+}
+
+func (l LevelLogger) WithWriter(writer LogWriter) Logger {
+	return CreateLevelLogger(writer, l.prefix, l.logLevelWaterMark)
 }
 
 func (l LevelLogger) WithGRContextLogging(useGRCL bool) Logger {

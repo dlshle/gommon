@@ -1,6 +1,10 @@
 package test_utils
 
-import "github.com/dlshle/gommon/utils"
+import (
+	"fmt"
+	"github.com/dlshle/gommon/utils"
+	"strings"
+)
 
 func AssertSlicesEqual(l []interface{}, r []interface{}) bool {
 	if len(l) != len(r) {
@@ -20,4 +24,22 @@ func AssertUnOrderedSlicesEqual(l []interface{}, r []interface{}) bool {
 
 func AssertSetsEqual(l map[interface{}]bool, r map[interface{}]bool) bool {
 	return len(utils.SetIntersections(l, r)) == 0
+}
+
+const (
+	pnUnequalError = "assertion failure: "
+)
+
+func AssertEquals[T comparable](l T, r T) {
+	if l != r {
+		panic(pnUnequalError + fmt.Sprintf("%v and %v are not equal", l, r))
+	}
+}
+
+func isAssertionFailurePanic(recovered interface{}) bool {
+	if panicString, ok := recovered.(string); ok {
+		return strings.HasPrefix(panicString, pnUnequalError)
+		return true
+	}
+	return false
 }

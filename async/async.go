@@ -49,7 +49,7 @@ type asyncPool struct {
 	numMaxWorkers         int32
 	numStartedWorkers     int32
 	status                byte
-	logger                *logger.SimpleLogger
+	logger                logger.Logger
 	maxPoolSize           int
 	maxOutPolicy          uint8
 	numGoroutineInitiated int32
@@ -87,7 +87,8 @@ func NewAsyncPool(id string, maxPoolSize, workerSize int) AsyncPool {
 		int32(getInRangeInt(workerSize, 2, 1024)),
 		0,
 		0,
-		logger.New(os.Stdout, fmt.Sprintf("asyncPool[%s]", id), false),
+		// logger.New(os.Stdout, fmt.Sprintf("asyncPool[%s]", id), false),
+		logger.CreateLevelLogger(logger.NewNoopWriter(), "[AsyncPool"+id+"]", -1),
 		maxPoolSize,
 		MaxOutPolicyWait,
 		0,
@@ -111,7 +112,7 @@ func (p *asyncPool) setStatus(status byte) {
 	defer p.rwLock.Unlock()
 	if status >= 0 && status < 4 {
 		p.status = status
-		p.logger.Output(1, stringz.Builder().String("Pool status has transitioned to ").Byte(status).BuildL())
+		p.logger.Info("Pool status has transitioned to " + statusStringMap[status])
 	}
 	return
 }
@@ -131,7 +132,7 @@ func (p *asyncPool) runWorker(index int32) {
 		case task, isOpen := <-p.channel:
 			// simply take task and work on it sequentially
 			if isOpen {
-				p.logger.Print(stringz.Builder().
+				p.logger.Info(stringz.Builder().
 					String("Worker ").
 					Int32(index).
 					String(" has acquired task ").
@@ -150,13 +151,13 @@ func (p *asyncPool) runWorker(index int32) {
 		}
 	}
 	p.decrementNumStartedWorkers()
-	p.logger.Output(1, stringz.Builder().String("Worker ").Int32(index).String(" terminated").BuildL())
+	p.logger.Info(stringz.Builder().String("Worker ").Int32(index).String(" terminated").BuildL())
 	p.stopWaitGroup.Done()
 }
 
 func (p *asyncPool) tryAddAndRunWorker() {
 	if p.getStatus() > RUNNING {
-		p.logger.Output(1, "status is terminating or terminated, can not add new worker\n")
+		p.logger.Info("status is terminating or terminated, can not add new worker")
 		return
 	}
 	if p.NumPendingTasks() > 0 && p.NumStartedWorkers() < p.NumMaxWorkers() {
@@ -169,7 +170,7 @@ func (p *asyncPool) addAndRunWorker() {
 	p.stopWaitGroup.Add(1)
 	// of course worker runs on its own goroutine
 	go p.runWorker(p.incrementAndGetNumStartedWorkers())
-	p.logger.Output(1, stringz.Builder().String("worker %d has been started").Int32(p.numStartedWorkers).BuildL())
+	p.logger.Infof("worker %d has been started", p.numStartedWorkers)
 }
 
 func (p *asyncPool) start() {
@@ -181,7 +182,7 @@ func (p *asyncPool) start() {
 
 func (p *asyncPool) Stop() {
 	if !p.HasStarted() {
-		p.logger.Output(1, "Warn: pool has not started\n")
+		p.logger.Info("Warn: pool has not started")
 		return
 	}
 	close(p.channel)
@@ -203,7 +204,7 @@ func (p *asyncPool) schedule(task AsyncTask) {
 		return
 	}
 	p.channel <- task
-	p.logger.Printf("Task %p has been scheduled", task)
+	p.logger.Infof("Task %p has been scheduled", task)
 	p.tryAddAndRunWorker()
 }
 
@@ -215,7 +216,7 @@ func (p *asyncPool) handlePoolSizeExceeded(task AsyncTask) {
 	case MaxOutPolicyPanic:
 		panic(fmt.Sprintf("max pool size(%d) exceeded", p.maxPoolSize))
 	case MaxOutPolicyDiscard:
-		p.logger.Printf("task %p is discarded", task)
+		p.logger.Infof("task %p is discarded", task)
 		return
 	case MaxOutPolicyRunOnCaller:
 		task()
@@ -250,7 +251,11 @@ func (p *asyncPool) ScheduleComputable(computableTask ComputableAsyncTask) WaitG
 }
 
 func (p *asyncPool) Verbose(use bool) {
-	p.logger.Verbose(use)
+	if use {
+		p.logger.Writer(logger.NewConsoleLogWriter(os.Stdout))
+	} else {
+		p.logger.Writer(logger.NewNoopWriter())
+	}
 }
 
 func (p *asyncPool) NumMaxWorkers() int {

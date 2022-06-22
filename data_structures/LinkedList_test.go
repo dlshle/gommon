@@ -1,13 +1,13 @@
 package data_structures
 
 import (
-	"testing"
 	"github.com/dlshle/gommon/test_utils"
 	"github.com/dlshle/gommon/utils"
+	"testing"
 )
 
 func TestLinkedList(t *testing.T) {
-	l := NewLinkedList(true)
+	l := NewLinkedList[float32](true)
 	tg := test_utils.NewTestGroup("LinkedList", "LinkedListTest")
 	tg.Then("Append first", "head and tail should equal to 1", func() bool {
 		l.Append(1)
@@ -53,7 +53,7 @@ func TestLinkedList(t *testing.T) {
 			t.Log("size != 10")
 			return false
 		}
-		set := utils.SliceToSet(l.ToSlice())
+		set := utils.TypedSliceToSet(l.ToSlice())
 		t.Log("slice: ", set)
 		if !(set[-3] && set[6]) {
 			return false

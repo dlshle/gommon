@@ -2,41 +2,43 @@ package data_structures
 
 import (
 	"sync"
+
 	"github.com/dlshle/gommon/utils"
 )
 
-func defaultComparator(a interface{}, b interface{}) int {
+func defaultComparator[T comparable](a T, b T) int {
 	if a == b {
 		return 0
 	}
 	return 1
 }
 
-type listNode struct {
-	prev *listNode
-	next *listNode
-	val  interface{}
+type listNode[T comparable] struct {
+	prev *listNode[T]
+	next *listNode[T]
+	val  T
 }
 
-type LinkedList struct {
-	head *listNode
-	tail *listNode
-	lock *sync.RWMutex
-	safe bool
-	size int
+type LinkedList[T comparable] struct {
+	head    *listNode[T]
+	tail    *listNode[T]
+	lock    *sync.RWMutex
+	safe    bool
+	size    int
+	zeroVal T
 
-	comparator func(interface{}, interface{}) int
+	comparator func(T, T) int
 }
 
-func NewLinkedList(safe bool) *LinkedList {
-	return &LinkedList{
+func NewLinkedList[T comparable](safe bool) *LinkedList[T] {
+	return &LinkedList[T]{
 		lock: new(sync.RWMutex),
 		safe: safe,
 		size: 0,
 	}
 }
 
-func (l *LinkedList) withWrite(cb func()) {
+func (l *LinkedList[T]) withWrite(cb func()) {
 	if l.safe {
 		l.lock.Lock()
 		defer l.lock.Unlock()
@@ -44,7 +46,7 @@ func (l *LinkedList) withWrite(cb func()) {
 	cb()
 }
 
-func (l *LinkedList) withRead(cb func() interface{}) interface{} {
+func (l *LinkedList[T]) withRead(cb func() interface{}) interface{} {
 	if l.safe {
 		l.lock.RLock()
 		defer l.lock.RUnlock()
@@ -52,7 +54,7 @@ func (l *LinkedList) withRead(cb func() interface{}) interface{} {
 	return cb()
 }
 
-func (l *LinkedList) headNode() *listNode {
+func (l *LinkedList[T]) headNode() *listNode[T] {
 	if l.safe {
 		l.lock.RLock()
 		defer l.lock.RUnlock()
@@ -60,7 +62,7 @@ func (l *LinkedList) headNode() *listNode {
 	return l.head
 }
 
-func (l *LinkedList) tailNode() *listNode {
+func (l *LinkedList[T]) tailNode() *listNode[T] {
 	if l.safe {
 		l.lock.RLock()
 		defer l.lock.RUnlock()
@@ -68,19 +70,19 @@ func (l *LinkedList) tailNode() *listNode {
 	return l.tail
 }
 
-func (l *LinkedList) setHead(node *listNode) {
+func (l *LinkedList[T]) setHead(node *listNode[T]) {
 	l.withWrite(func() {
 		l.head = node
 	})
 }
 
-func (l *LinkedList) setTail(node *listNode) {
+func (l *LinkedList[T]) setTail(node *listNode[T]) {
 	l.withWrite(func() {
 		l.tail = node
 	})
 }
 
-func (l *LinkedList) Size() int {
+func (l *LinkedList[T]) Size() int {
 	if l.safe {
 		l.lock.RLock()
 		defer l.lock.RUnlock()
@@ -88,21 +90,21 @@ func (l *LinkedList) Size() int {
 	return l.size
 }
 
-func (l *LinkedList) Head() interface{} {
+func (l *LinkedList[T]) Head() T {
 	if l.head == nil {
-		return nil
+		return l.zeroVal
 	}
 	return l.head.val
 }
 
-func (l *LinkedList) Tail() interface{} {
+func (l *LinkedList[T]) Tail() T {
 	if l.tail == nil {
-		return nil
+		return l.zeroVal
 	}
 	return l.tail.val
 }
 
-func (l *LinkedList) isValidIndex(index int, validateForInsert bool) bool {
+func (l *LinkedList[T]) isValidIndex(index int, validateForInsert bool) bool {
 	upperBound := l.Size()
 	if validateForInsert {
 		upperBound++
@@ -110,7 +112,7 @@ func (l *LinkedList) isValidIndex(index int, validateForInsert bool) bool {
 	return l.Size() != 0 && index >= 0 && (index < upperBound)
 }
 
-func (l *LinkedList) getNode(index int) *listNode {
+func (l *LinkedList[T]) getNode(index int) *listNode[T] {
 	if !l.isValidIndex(index, false) {
 		return nil
 	}
@@ -121,7 +123,7 @@ func (l *LinkedList) getNode(index int) *listNode {
 		return l.tailNode()
 	}
 	return l.withRead(func() interface{} {
-		var curr *listNode
+		var curr *listNode[T]
 		fromHead := index <= (l.size / 2)
 		offset := utils.ConditionalPick(fromHead, index, l.size-index+1).(int)
 		if fromHead {
@@ -132,28 +134,28 @@ func (l *LinkedList) getNode(index int) *listNode {
 		for offset > 0 {
 			curr = utils.ConditionalGet(fromHead,
 				func() interface{} { return curr.next },
-				func() interface{} { return curr.prev }).(*listNode)
+				func() interface{} { return curr.prev }).(*listNode[T])
 			offset--
 		}
 		return curr
-	}).(*listNode)
+	}).(*listNode[T])
 }
 
-func (l *LinkedList) initFirstNode(value interface{}) {
+func (l *LinkedList[T]) initFirstNode(value T) {
 	l.withWrite(func() {
-		l.head = &listNode{val: value}
+		l.head = &listNode[T]{val: value}
 		l.tail = l.head
 		l.size++
 	})
 }
 
-func (l *LinkedList) insertBeforeNode(node *listNode, value interface{}) *listNode {
+func (l *LinkedList[T]) insertBeforeNode(node *listNode[T], value T) *listNode[T] {
 	if node == nil {
 		return nil
 	}
-	var newNode *listNode
+	var newNode *listNode[T]
 	l.withWrite(func() {
-		newNode = &listNode{
+		newNode = &listNode[T]{
 			prev: node.prev,
 			next: node,
 			val:  value,
@@ -167,13 +169,13 @@ func (l *LinkedList) insertBeforeNode(node *listNode, value interface{}) *listNo
 	return newNode
 }
 
-func (l *LinkedList) insertAfterNode(node *listNode, value interface{}) *listNode {
+func (l *LinkedList[T]) insertAfterNode(node *listNode[T], value T) *listNode[T] {
 	if node == nil {
 		return nil
 	}
-	var newNode *listNode
+	var newNode *listNode[T]
 	l.withWrite(func() {
-		newNode = &listNode{
+		newNode = &listNode[T]{
 			prev: node,
 			next: node.next,
 			val:  value,
@@ -187,7 +189,7 @@ func (l *LinkedList) insertAfterNode(node *listNode, value interface{}) *listNod
 	return newNode
 }
 
-func (l *LinkedList) insert(index int, value interface{}) bool {
+func (l *LinkedList[T]) insert(index int, value T) bool {
 	if l.Size() == 0 && index == 0 {
 		l.initFirstNode(value)
 		return true
@@ -204,15 +206,15 @@ func (l *LinkedList) insert(index int, value interface{}) bool {
 	return true
 }
 
-func (l *LinkedList) Get(index int) interface{} {
+func (l *LinkedList[T]) Get(index int) T {
 	node := l.getNode(index)
 	if node == nil {
-		return nil
+		return l.zeroVal
 	}
 	return node.val
 }
 
-func (l *LinkedList) removeOnNode(node *listNode) *listNode {
+func (l *LinkedList[T]) removeOnNode(node *listNode[T]) *listNode[T] {
 	if node == nil {
 		return nil
 	}
@@ -228,7 +230,7 @@ func (l *LinkedList) removeOnNode(node *listNode) *listNode {
 	return node
 }
 
-func (l *LinkedList) remove(index int) *listNode {
+func (l *LinkedList[T]) remove(index int) *listNode[T] {
 	node := l.getNode(index)
 	if node == nil {
 		return nil
@@ -236,24 +238,24 @@ func (l *LinkedList) remove(index int) *listNode {
 	return l.removeOnNode(node)
 }
 
-func (l *LinkedList) Remove(index int) interface{} {
+func (l *LinkedList[T]) Remove(index int) T {
 	node := l.remove(index)
 	if node != nil {
 		return node.val
 	}
-	return nil
+	return l.zeroVal
 }
 
-func (l *LinkedList) Insert(index int, value interface{}) bool {
+func (l *LinkedList[T]) Insert(index int, value T) bool {
 	return l.insert(index, value)
 }
 
-func (l *LinkedList) Append(value interface{}) {
+func (l *LinkedList[T]) Append(value T) {
 	if l.tailNode() == nil {
 		l.initFirstNode(value)
 	} else if l.Size() == 1 {
 		l.withWrite(func() {
-			l.tail = &listNode{
+			l.tail = &listNode[T]{
 				val:  value,
 				prev: l.head,
 			}
@@ -268,12 +270,12 @@ func (l *LinkedList) Append(value interface{}) {
 	}
 }
 
-func (l *LinkedList) Prepend(value interface{}) {
+func (l *LinkedList[T]) Prepend(value T) {
 	if l.headNode() == nil {
 		l.initFirstNode(value)
 	} else if l.Size() == 1 {
 		l.withWrite(func() {
-			l.head = &listNode{
+			l.head = &listNode[T]{
 				val:  value,
 				next: l.tail,
 			}
@@ -289,26 +291,26 @@ func (l *LinkedList) Prepend(value interface{}) {
 }
 
 // get and remove first
-func (l *LinkedList) Poll() interface{} {
+func (l *LinkedList[T]) Poll() T {
 	node := l.removeOnNode(l.headNode())
 	if node != nil {
 		l.setHead(node.next)
 		return node.val
 	}
-	return nil
+	return l.zeroVal
 }
 
 // get and remove last
-func (l *LinkedList) Pop() interface{} {
+func (l *LinkedList[T]) Pop() T {
 	node := l.removeOnNode(l.tailNode())
 	if node != nil {
 		l.setTail(node.prev)
 		return node.val
 	}
-	return nil
+	return l.zeroVal
 }
 
-func (l *LinkedList) ForEach(cb func(item interface{}, index int)) {
+func (l *LinkedList[T]) ForEach(cb func(item T, index int)) {
 	l.withRead(func() interface{} {
 		counter := 0
 		curr := l.head
@@ -321,25 +323,33 @@ func (l *LinkedList) ForEach(cb func(item interface{}, index int)) {
 	})
 }
 
-func (l *LinkedList) Map(cb func(item interface{}, index int) interface{}) *LinkedList {
-	list := NewLinkedList(true)
-	l.ForEach(func(item interface{}, index int) {
+func (l *LinkedList[T]) Map(cb func(item T, index int) T) *LinkedList[T] {
+	list := NewLinkedList[T](true)
+	l.ForEach(func(item T, index int) {
 		list.Append(cb(item, index))
 	})
 	return list
 }
 
-func (l *LinkedList) ToSlice() []interface{} {
-	slice := make([]interface{}, l.size, l.size)
-	l.ForEach(func(val interface{}, index int) {
+func (l *LinkedList[T]) ReduceLeft(cb func(accu T, curr T) T, initialVal T) T {
+	result := initialVal
+	l.ForEach(func(item T, index int) {
+		result = cb(result, item)
+	})
+	return result
+}
+
+func (l *LinkedList[T]) ToSlice() []T {
+	slice := make([]T, l.size, l.size)
+	l.ForEach(func(val T, index int) {
 		slice[index] = val
 	})
 	return slice
 }
 
-func (l *LinkedList) Search(val interface{}, comparator func(a interface{}, b interface{}) int) int {
+func (l *LinkedList[T]) Search(val T, comparator func(a T, b T) int) int {
 	index := -1
-	l.ForEach(func(value interface{}, i int) {
+	l.ForEach(func(value T, i int) {
 		if comparator(value, val) == 0 {
 			index = i
 		}
@@ -347,30 +357,30 @@ func (l *LinkedList) Search(val interface{}, comparator func(a interface{}, b in
 	return index
 }
 
-func (l *LinkedList) IndexOf(val interface{}) int {
+func (l *LinkedList[T]) IndexOf(val T) int {
 	if l.comparator != nil {
 		return l.Search(val, l.comparator)
 	}
-	return l.Search(val, defaultComparator)
+	return l.Search(val, defaultComparator[T])
 }
 
-func (l *LinkedList) Has(val interface{}) bool {
+func (l *LinkedList[T]) Has(val T) bool {
 	return l.IndexOf(val) != -1
 }
 
-func (l *LinkedList) SetSafe() {
+func (l *LinkedList[T]) SetSafe() {
 	l.withWrite(func() {
 		l.safe = true
 	})
 }
 
-func (l *LinkedList) SetUnsafe() {
+func (l *LinkedList[T]) SetUnsafe() {
 	l.withWrite(func() {
 		l.safe = false
 	})
 }
 
-func (l *LinkedList) IsSafe() bool {
+func (l *LinkedList[T]) IsSafe() bool {
 	return l.withRead(func() interface{} {
 		return l.safe
 	}).(bool)

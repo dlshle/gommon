@@ -2,8 +2,9 @@ package test_utils
 
 import (
 	"fmt"
-	"github.com/dlshle/gommon/utils"
 	"strings"
+
+	"github.com/dlshle/gommon/utils"
 )
 
 func AssertSlicesEqual(l []interface{}, r []interface{}) bool {
@@ -27,19 +28,71 @@ func AssertSetsEqual(l map[interface{}]bool, r map[interface{}]bool) bool {
 }
 
 const (
-	pnUnequalError = "assertion failure: "
+	assertionFailureError = "assertion failure: "
 )
+
+func AssertNil(val interface{}) {
+	if val != nil {
+		panic(assertionFailureError + fmt.Sprintf("value %v isn't nil", val))
+	}
+}
+
+func AssertNonNil(val interface{}) {
+	if val == nil {
+		panic(assertionFailureError + fmt.Sprintf("value %v isn nil", val))
+	}
+}
+
+func AssertStringEmpty(val string) {
+	AssertEquals(val, "")
+}
+
+func AssertTrue(val bool) {
+	if !val {
+		panic(assertionFailureError + "value isn't true")
+	}
+}
+
+func AssertFalse(val bool) {
+	if val {
+		panic(assertionFailureError + "value isn't false")
+	}
+}
+
+func AssertPanic(cb func()) {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			panic(assertionFailureError + "no panic value is recovered")
+		}
+	}()
+	cb()
+}
+
+func AssertPanicValue[T comparable](cb func(), expected T) {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			panic(assertionFailureError + "no panic value is recovered")
+		}
+		converted, ok := recovered.(T)
+		if !ok {
+			panic(assertionFailureError + "unable to cast recovered panic value to the expected type")
+		}
+		AssertEquals(converted, expected)
+	}()
+	cb()
+}
 
 func AssertEquals[T comparable](l T, r T) {
 	if l != r {
-		panic(pnUnequalError + fmt.Sprintf("%v and %v are not equal", l, r))
+		panic(assertionFailureError + fmt.Sprintf("%v and %v are not equal", l, r))
 	}
 }
 
 func isAssertionFailurePanic(recovered interface{}) bool {
 	if panicString, ok := recovered.(string); ok {
-		return strings.HasPrefix(panicString, pnUnequalError)
-		return true
+		return strings.HasPrefix(panicString, assertionFailureError)
 	}
 	return false
 }

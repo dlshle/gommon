@@ -2,25 +2,25 @@ package data_structures
 
 import "sync"
 
-type Set interface {
-	Add(interface{}) bool
-	Delete(interface{}) bool
-	GetAll() []interface{}
+type Set[T comparable] interface {
+	Add(T) bool
+	Delete(T) bool
+	GetAll() []T
 	Clear()
 	Size() int
-	ForEach(func(interface{}))
-	ForEachWithBreaker(cb func(interface{}, func()))
+	ForEach(func(T))
+	ForEachWithBreaker(cb func(T, func()))
 }
 
-type set struct {
-	m map[interface{}]bool
+type set[T comparable] struct {
+	m map[T]bool
 }
 
-func NewSet() Set {
-	return &set{make(map[interface{}]bool)}
+func NewSet[T comparable]() Set[T] {
+	return &set[T]{make(map[T]bool)}
 }
 
-func (s *set) Add(data interface{}) bool {
+func (s *set[T]) Add(data T) bool {
 	if s.m[data] {
 		return false
 	}
@@ -28,7 +28,7 @@ func (s *set) Add(data interface{}) bool {
 	return true
 }
 
-func (s *set) Delete(data interface{}) bool {
+func (s *set[T]) Delete(data T) bool {
 	if s.m[data] {
 		delete(s.m, data)
 		return true
@@ -36,31 +36,31 @@ func (s *set) Delete(data interface{}) bool {
 	return false
 }
 
-func (s *set) Clear() {
+func (s *set[T]) Clear() {
 	for k := range s.m {
 		delete(s.m, k)
 	}
 }
 
-func (s *set) GetAll() []interface{} {
-	var data []interface{}
-	for k, _ := range s.m {
+func (s *set[T]) GetAll() []T {
+	var data []T
+	for k := range s.m {
 		data = append(data, k)
 	}
 	return data
 }
 
-func (s *set) Size() int {
+func (s *set[T]) Size() int {
 	return len(s.m)
 }
 
-func (s *set) ForEach(cb func(interface{})) {
+func (s *set[T]) ForEach(cb func(T)) {
 	for k := range s.m {
 		cb(k)
 	}
 }
 
-func (s *set) ForEachWithBreaker(cb func(interface{}, func())) {
+func (s *set[T]) ForEachWithBreaker(cb func(T, func())) {
 	shouldStop := false
 	stopper := func() {
 		shouldStop = true
@@ -73,64 +73,64 @@ func (s *set) ForEachWithBreaker(cb func(interface{}, func())) {
 	}
 }
 
-type SafeSet struct {
+type SafeSet[T comparable] struct {
 	lock *sync.RWMutex
-	s    Set
+	s    Set[T]
 }
 
-func (s *SafeSet) withRead(cb func()) {
+func (s *SafeSet[T]) withRead(cb func()) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	cb()
 }
 
-func (s *SafeSet) withWrite(cb func()) {
+func (s *SafeSet[T]) withWrite(cb func()) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	cb()
 }
 
-func (s *SafeSet) Add(i interface{}) (exist bool) {
+func (s *SafeSet[T]) Add(i T) (exist bool) {
 	s.withWrite(func() {
 		exist = s.s.Add(i)
 	})
 	return
 }
 
-func (s *SafeSet) Delete(i interface{}) (exist bool) {
+func (s *SafeSet[T]) Delete(i T) (exist bool) {
 	s.withWrite(func() {
 		exist = s.s.Delete(i)
 	})
 	return
 }
 
-func (s *SafeSet) Clear() {
+func (s *SafeSet[T]) Clear() {
 	s.withWrite(func() {
 		s.s.Clear()
 	})
 }
 
-func (s *SafeSet) GetAll() (elements []interface{}) {
+func (s *SafeSet[T]) GetAll() (elements []T) {
 	s.withRead(func() {
 		elements = s.s.GetAll()
 	})
 	return
 }
 
-func (s *SafeSet) Size() (size int) {
+func (s *SafeSet[T]) Size() (size int) {
 	s.withRead(func() {
 		size = s.s.Size()
 	})
 	return
 }
 
-func (s *SafeSet) ForEach(cb func(interface{})) {
-	s.ForEachWithBreaker(func(ele interface{}, _ func()) {
+func (s *SafeSet[T]) ForEach(cb func(T)) {
+	s.ForEachWithBreaker(func(ele T, _ func()) {
 		cb(ele)
 	})
 }
 
-func (s *SafeSet) ForEachWithBreaker(cb func(interface{}, func())) {
+func (s *SafeSet[T]) ForEachWithBreaker(cb func(T, func())) {
 	// do it this way to avoid writing in the for each loop
 	shouldStop := false
 	breakFunc := func() {
@@ -145,9 +145,9 @@ func (s *SafeSet) ForEachWithBreaker(cb func(interface{}, func())) {
 	}
 }
 
-func NewSafeSet() Set {
-	return &SafeSet{
+func NewSafeSet[T comparable]() Set[T] {
+	return &SafeSet[T]{
 		lock: new(sync.RWMutex),
-		s:    NewSet(),
+		s:    NewSet[T](),
 	}
 }

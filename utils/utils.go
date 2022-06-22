@@ -168,3 +168,11 @@ func StringMapToJSON(s map[string]string) string {
 	buffer.WriteRune('}')
 	return buffer.String()
 }
+
+func CheckNonZero[T comparable](val T) T {
+	var zeroVal T
+	if val == zeroVal {
+		panic(fmt.Sprintf("value %v is a zero val", val))
+	}
+	return val
+}

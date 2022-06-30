@@ -246,7 +246,7 @@ func doAssertCase(t *testing.T, indent int, id string, desc string, assertion fu
 			if isAssertionFailurePanic(recovered) {
 				errorMessage = recovered.(string)
 			} else {
-				errorMessage = "panic recovered, call stack trace: \n" + getCallers()
+				errorMessage = fmt.Sprintf("panic recovered, message = %v, call stack trace: \n %s", recovered, getCallers())
 			}
 		}
 		if t != nil {
@@ -254,7 +254,7 @@ func doAssertCase(t *testing.T, indent int, id string, desc string, assertion fu
 				t.Logf("%s✅ %s passed\n", getIndentations(indent), id)
 			} else {
 				t.Errorf("%s❌ %s failed\n", getIndentations(indent), id)
-				t.Error(colorRed + errorMessage)
+				t.Error(colorRed + errorMessage + colorReset)
 			}
 		}
 	}()
@@ -264,7 +264,7 @@ func doAssertCase(t *testing.T, indent int, id string, desc string, assertion fu
 
 func getCallers() string {
 	callers := ""
-	for i := 0; true; i++ {
+	for i := 2; true; i++ {
 		_, file, line, ok := runtime.Caller(i)
 		if !ok {
 			break

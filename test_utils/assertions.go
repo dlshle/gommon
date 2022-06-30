@@ -39,7 +39,7 @@ func AssertNil(val interface{}) {
 
 func AssertNonNil(val interface{}) {
 	if val == nil {
-		panic(assertionFailureError + fmt.Sprintf("value %v isn nil", val))
+		panic(assertionFailureError + fmt.Sprintf("value %v isn't nil", val))
 	}
 }
 

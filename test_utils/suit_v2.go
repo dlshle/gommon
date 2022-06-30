@@ -244,9 +244,9 @@ func doAssertCase(t *testing.T, indent int, id string, desc string, assertion fu
 		if recovered := recover(); recovered != nil {
 			res = false
 			if isAssertionFailurePanic(recovered) {
-				errorMessage = recovered.(string)
+				errorMessage = fmt.Sprintf(`panic recovered, message = "%s", call stack trace: \n %s`, recovered.(string), getCallers())
 			} else {
-				errorMessage = fmt.Sprintf("panic recovered, message = %v, call stack trace: \n %s", recovered, getCallers())
+				errorMessage = fmt.Sprintf(`panic recovered, message = "%v", call stack trace: \n %s`, recovered, getCallers())
 			}
 		}
 		if t != nil {

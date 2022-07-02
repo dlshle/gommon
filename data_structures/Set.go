@@ -4,6 +4,7 @@ import "sync"
 
 type ImmutableSet[T comparable] interface {
 	Container
+	Has(data T) bool
 	GetAll() []T
 	ForEach(func(T))
 	ForEachWithBreaker(cb func(T, func()))
@@ -35,6 +36,10 @@ func (s *set[T]) Add(data T) bool {
 	}
 	s.m[data] = true
 	return true
+}
+
+func (s *set[T]) Has(data T) bool {
+	return s.m[data]
 }
 
 func (s *set[T]) Delete(data T) bool {
@@ -102,6 +107,13 @@ func (s *SafeSet[T]) withWrite(cb func()) {
 func (s *SafeSet[T]) Add(i T) (exist bool) {
 	s.withWrite(func() {
 		exist = s.s.Add(i)
+	})
+	return
+}
+
+func (s *SafeSet[T]) Has(i T) (exists bool) {
+	s.withRead(func() {
+		exists = s.s.Has(i)
 	})
 	return
 }

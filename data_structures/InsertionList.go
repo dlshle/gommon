@@ -3,6 +3,7 @@ package data_structures
 import "sync"
 
 type InsertionList[T comparable] interface {
+	Container
 	Get(index int) T
 	Add(item T)
 	Remove(item T) bool
@@ -10,7 +11,6 @@ type InsertionList[T comparable] interface {
 	Find(item T) int
 	Has(item T) bool
 	AsSlice() []T
-	Size() int
 	Clear()
 }
 

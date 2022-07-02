@@ -2,14 +2,19 @@ package data_structures
 
 import "sync"
 
-type Set[T comparable] interface {
-	Add(T) bool
-	Delete(T) bool
+type ImmutableSet[T comparable] interface {
+	Container
 	GetAll() []T
-	Clear()
-	Size() int
 	ForEach(func(T))
 	ForEachWithBreaker(cb func(T, func()))
+}
+
+type Set[T comparable] interface {
+	Container
+	ImmutableSet[T]
+	Add(T) bool
+	Delete(T) bool
+	Clear()
 }
 
 type set[T comparable] struct {
@@ -18,6 +23,10 @@ type set[T comparable] struct {
 
 func NewSet[T comparable]() Set[T] {
 	return &set[T]{make(map[T]bool)}
+}
+
+func NewSetOf[T comparable](m map[T]bool) Set[T] {
+	return &set[T]{m}
 }
 
 func (s *set[T]) Add(data T) bool {
@@ -150,4 +159,19 @@ func NewSafeSet[T comparable]() Set[T] {
 		lock: new(sync.RWMutex),
 		s:    NewSet[T](),
 	}
+}
+
+func NewSafeSetOf[T comparable](m map[T]bool) Set[T] {
+	return &SafeSet[T]{
+		lock: new(sync.RWMutex),
+		s:    NewSetOf(m),
+	}
+}
+
+func ImmutableSetOf[T comparable](data ...T) ImmutableSet[T] {
+	m := make(map[T]bool)
+	for _, d := range data {
+		m[d] = true
+	}
+	return NewSetOf(m)
 }

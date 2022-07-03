@@ -18,7 +18,7 @@ type LevelLogger struct {
 	logLevelWaterMark int
 	context           map[string]string
 	enableGRContext   bool
-	truncateLimit     int
+	subLoggers        []Logger
 }
 
 const LogAllWaterMark = -1
@@ -36,6 +36,7 @@ func NewLevelLogger(writer io.Writer, prefix string, format int, waterMark int) 
 		logLevelWaterMark: waterMark,
 		context:           make(map[string]string),
 		enableGRContext:   false,
+		subLoggers:        make([]Logger, 0),
 	}
 }
 
@@ -46,6 +47,7 @@ func CreateLevelLogger(entityWriter LogWriter, prefix string, loggingMark int) L
 		logLevelWaterMark: loggingMark,
 		context:           make(map[string]string),
 		enableGRContext:   true,
+		subLoggers:        make([]Logger, 0),
 	}
 }
 
@@ -157,6 +159,13 @@ func (l *LevelLogger) Prefix(prefix string) {
 	l.prefix = prefix
 }
 
+func (l *LevelLogger) PrefixWithPropogate(prefix string) {
+	l.prefix = prefix
+	for _, subLogger := range l.subLoggers {
+		subLogger.PrefixWithPropogate(prefix)
+	}
+}
+
 func (l *LevelLogger) Format(format int) {
 	// no-op
 }
@@ -165,34 +174,53 @@ func (l *LevelLogger) Writer(writer LogWriter) {
 	l.writer = writer
 }
 
+func (l *LevelLogger) WriterWithPropogate(writer LogWriter) {
+	l.writer = writer
+	for _, subLogger := range l.subLoggers {
+		subLogger.WriterWithPropogate(writer)
+	}
+}
+
 // create new logger
 func (l *LevelLogger) WithPrefix(prefix string) Logger {
-	return CreateLevelLogger(l.writer, prefix, l.logLevelWaterMark)
+	subLogger := CreateLevelLogger(l.writer, prefix, l.logLevelWaterMark)
+	l.subLoggers = append(l.subLoggers, subLogger)
+	return subLogger
 }
 
 func (l *LevelLogger) WithFormat(format int) Logger {
-	return CreateLevelLogger(l.writer, l.prefix, l.logLevelWaterMark)
+	subLogger := CreateLevelLogger(l.writer, l.prefix, l.logLevelWaterMark)
+	l.subLoggers = append(l.subLoggers, subLogger)
+	return subLogger
 }
 
 func (l *LevelLogger) WithWriter(writer LogWriter) Logger {
-	return CreateLevelLogger(writer, l.prefix, l.logLevelWaterMark)
+	subLogger := CreateLevelLogger(writer, l.prefix, l.logLevelWaterMark)
+	l.subLoggers = append(l.subLoggers, subLogger)
+	return subLogger
 }
 
 func (l *LevelLogger) WithGRContextLogging(useGRCL bool) Logger {
-	return &LevelLogger{
+	subLogger := &LevelLogger{
 		writer:            l.writer,
 		prefix:            l.prefix,
 		logLevelWaterMark: l.logLevelWaterMark,
 		context:           l.context,
 		enableGRContext:   useGRCL,
+		subLoggers:        make([]Logger, 0),
 	}
+	l.subLoggers = append(l.subLoggers, subLogger)
+	return subLogger
 }
 
 func (l *LevelLogger) WithContext(context map[string]string) Logger {
-	return &LevelLogger{
+	subLogger := &LevelLogger{
 		writer:            l.writer,
 		prefix:            l.prefix,
 		logLevelWaterMark: l.logLevelWaterMark,
 		context:           context,
+		subLoggers:        make([]Logger, 0),
 	}
+	l.subLoggers = append(l.subLoggers, subLogger)
+	return subLogger
 }

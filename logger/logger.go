@@ -57,8 +57,10 @@ type Logger interface {
 	Fatalf(format string, records ...interface{})
 
 	Prefix(prefix string)
+	PrefixWithPropogate(prefix string)
 	Format(format int)
 	Writer(writer LogWriter)
+	WriterWithPropogate(writer LogWriter)
 
 	// create new logger
 	WithPrefix(prefix string) Logger

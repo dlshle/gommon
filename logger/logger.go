@@ -2,11 +2,19 @@ package logger
 
 import (
 	"bytes"
-	"github.com/dlshle/gommon/utils"
 	"io"
+	"os"
 	"strconv"
 	"time"
+
+	"github.com/dlshle/gommon/utils"
 )
+
+var GlobalLogger Logger = CreateLevelLogger(NewConsoleLogWriter(os.Stdout), prefix, LogAllWaterMark)
+
+func SetLogger(logger Logger) {
+	GlobalLogger = logger
+}
 
 const (
 	TRACE = iota

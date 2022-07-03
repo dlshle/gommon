@@ -3,12 +3,13 @@ package logger
 import (
 	"bytes"
 	"fmt"
-	"github.com/dlshle/gommon/stringz"
 	"io"
 	"os"
 	"runtime"
 	"strconv"
 	"time"
+
+	"github.com/dlshle/gommon/stringz"
 )
 
 type LevelLogger struct {

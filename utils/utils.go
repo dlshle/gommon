@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 )
 
@@ -175,4 +176,8 @@ func CheckNonZero[T comparable](val T) T {
 		panic(fmt.Sprintf("value %v is a zero val", val))
 	}
 	return val
+}
+
+func EncodeString(str string) string {
+	return strings.ReplaceAll(str, "\"", "\\\"")
 }

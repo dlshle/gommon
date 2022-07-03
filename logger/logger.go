@@ -10,7 +10,7 @@ import (
 	"github.com/dlshle/gommon/utils"
 )
 
-var GlobalLogger Logger = CreateLevelLogger(NewConsoleLogWriter(os.Stdout), prefix, LogAllWaterMark)
+var GlobalLogger Logger = CreateLevelLogger(NewConsoleLogWriter(os.Stdout), "", LogAllWaterMark)
 
 func SetLogger(logger Logger) {
 	GlobalLogger = logger

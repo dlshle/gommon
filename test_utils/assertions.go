@@ -90,6 +90,26 @@ func AssertEquals[T comparable](l T, r T) {
 	}
 }
 
+func AssertNotEqual[T comparable](l T, r T) {
+	if l == r {
+		panic(assertionFailureError + fmt.Sprintf("%v and %v are equal", l, r))
+	}
+}
+
+func AssertSliceEmpty[T comparable](slice []T) {
+	AssertNonNil(slice)
+	if len(slice) > 0 {
+		panic(assertionFailureError + fmt.Sprintf("slice isn't empty"))
+	}
+}
+
+func AssertSliceNonEmpty[T comparable](slice []T) {
+	AssertNonNil(slice)
+	if len(slice) == 0 {
+		panic(assertionFailureError + fmt.Sprintf("slice is empty"))
+	}
+}
+
 func isAssertionFailurePanic(recovered interface{}) bool {
 	if panicString, ok := recovered.(string); ok {
 		return strings.HasPrefix(panicString, assertionFailureError)

@@ -41,6 +41,7 @@ func (e *multiError) Error() string {
 	var builder strings.Builder
 	for _, err := range e.errors {
 		builder.WriteString(err.Error())
+		builder.WriteRune('\n')
 	}
 	return builder.String()
 }

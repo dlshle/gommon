@@ -63,15 +63,9 @@ func (l *LevelLogger) output(level int, data ...string) {
 	} else {
 		builder.WriteString(stringz.ConcatString(data...))
 	}
-	logEntity := &LogEntity{
-		Level:     level,
-		File:      l.getFileName(),
-		Timestamp: time.Now(),
-		Prefix:    l.prefix,
-		Context:   l.prepareContext(),
-		Message:   builder.String(),
-	}
+	logEntity := newLogEntity(level, l.prefix, l.prepareContext(), time.Now(), builder.String(), l.getFileName())
 	l.writer.Write(logEntity)
+	logEntity.recycle()
 }
 
 func (l *LevelLogger) getFileName() string {

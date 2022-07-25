@@ -3,9 +3,14 @@ package uri_trie
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/dlshle/gommon/utils"
 )
+
+var matchContextPool sync.Pool = sync.Pool{New: func() any {
+	return new(MatchContext)
+}}
 
 const (
 	DefaultCompactSize = 15
@@ -16,6 +21,20 @@ type MatchContext struct {
 	QueryParams map[string]string
 	PathParams  map[string]string
 	Value       interface{}
+}
+
+func newMatchContext(queryParams map[string]string) *MatchContext {
+	ctx := matchContextPool.Get().(*MatchContext)
+	ctx.QueryParams = queryParams
+	ctx.PathParams = make(map[string]string)
+	return ctx
+}
+
+func (c *MatchContext) Recycle() {
+	c.PathParams = nil
+	c.QueryParams = nil
+	c.Value = nil
+	matchContextPool.Put(c)
 }
 
 type UriContext struct {
@@ -388,10 +407,7 @@ func (t *TrieTree) Match(path string) (*MatchContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	c, e := t.root.matchByPath(remaining, &MatchContext{
-		PathParams:  make(map[string]string),
-		QueryParams: queryParams,
-	})
+	c, e := t.root.matchByPath(remaining, newMatchContext(queryParams))
 	if c == nil || e != nil {
 		return nil, e
 	}

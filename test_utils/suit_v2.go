@@ -27,6 +27,7 @@ type assertion struct {
 	description           string
 	assertion             func()
 	shouldAssert          bool
+	isIgnored             bool
 	next                  *assertion
 	numRuns               int
 	runMultipleInParallel bool
@@ -40,6 +41,7 @@ type Assertable interface {
 	Cases(cases ...*assertion) Assertable
 	WithMultipleRuns(numRuns int, parallel bool) Assertable
 	NoAssertionLog() Assertable
+	Ignore() Assertable
 	Do(t *testing.T)
 }
 
@@ -64,6 +66,11 @@ func NewGroup(id string, description string) Assertable {
 		description: description,
 	}
 	a.head = a
+	return a
+}
+
+func (a *assertion) Ignore() Assertable {
+	a.isIgnored = true
 	return a
 }
 
@@ -184,6 +191,9 @@ func (a *assertion) Do(t *testing.T) {
 }
 
 func (a *assertion) doAssertion(t *testing.T, indent int, node *assertion) {
+	if node.isIgnored {
+		t.Logf("skipping case " + node.id)
+	}
 	runner := func(indent int) bool {
 		if a.noAssertionLog {
 			return doAssertCase(nil, indent, node.id, node.description, node.assertion)

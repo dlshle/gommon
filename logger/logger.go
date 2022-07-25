@@ -5,10 +5,21 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/dlshle/gommon/utils"
 )
+
+var logEntityPool sync.Pool
+
+func init() {
+	logEntityPool = sync.Pool{
+		New: func() any {
+			return new(LogEntity)
+		},
+	}
+}
 
 var GlobalLogger Logger = CreateLevelLogger(NewConsoleLogWriter(os.Stdout), "", LogAllWaterMark)
 
@@ -78,6 +89,21 @@ type LogEntity struct {
 	Timestamp time.Time
 	Message   string
 	File      string
+}
+
+func (e *LogEntity) recycle() {
+	logEntityPool.Put(e)
+}
+
+func newLogEntity(level int, prefix string, context map[string]string, timestamp time.Time, message string, file string) *LogEntity {
+	entity := logEntityPool.Get().(*LogEntity)
+	entity.Level = level
+	entity.Prefix = prefix
+	entity.Context = context
+	entity.Timestamp = timestamp
+	entity.Message = message
+	entity.File = file
+	return entity
 }
 
 type LogWriter interface {

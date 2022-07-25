@@ -3,11 +3,11 @@ package async
 import (
 	"context"
 	"fmt"
-	"github.com/dlshle/gommon/logger"
-	"github.com/dlshle/gommon/stringz"
 	"os"
 	"sync"
 	"sync/atomic"
+
+	"github.com/dlshle/gommon/logger"
 )
 
 const (
@@ -132,12 +132,6 @@ func (p *asyncPool) runWorker(index int32) {
 		case task, isOpen := <-p.channel:
 			// simply take task and work on it sequentially
 			if isOpen {
-				p.logger.Info(stringz.Builder().
-					String("Worker ").
-					Int32(index).
-					String(" has acquired task ").
-					Pointer(task).
-					BuildL())
 				task()
 			} else {
 				shouldContinue = false
@@ -151,13 +145,12 @@ func (p *asyncPool) runWorker(index int32) {
 		}
 	}
 	p.decrementNumStartedWorkers()
-	p.logger.Info(stringz.Builder().String("Worker ").Int32(index).String(" terminated").BuildL())
 	p.stopWaitGroup.Done()
 }
 
 func (p *asyncPool) tryAddAndRunWorker() {
 	if p.getStatus() > RUNNING {
-		p.logger.Info("status is terminating or terminated, can not add new worker")
+		p.logger.Warn("status is terminating or terminated, can not add new worker")
 		return
 	}
 	if p.NumPendingTasks() > 0 && p.NumStartedWorkers() < p.NumMaxWorkers() {
@@ -170,7 +163,6 @@ func (p *asyncPool) addAndRunWorker() {
 	p.stopWaitGroup.Add(1)
 	// of course worker runs on its own goroutine
 	go p.runWorker(p.incrementAndGetNumStartedWorkers())
-	p.logger.Infof("worker %d has been started", p.numStartedWorkers)
 }
 
 func (p *asyncPool) start() {
@@ -182,7 +174,7 @@ func (p *asyncPool) start() {
 
 func (p *asyncPool) Stop() {
 	if !p.HasStarted() {
-		p.logger.Info("Warn: pool has not started")
+		p.logger.Warn("pool has not started")
 		return
 	}
 	close(p.channel)
@@ -204,7 +196,6 @@ func (p *asyncPool) schedule(task AsyncTask) {
 		return
 	}
 	p.channel <- task
-	p.logger.Infof("Task %p has been scheduled", task)
 	p.tryAddAndRunWorker()
 }
 

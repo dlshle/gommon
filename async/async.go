@@ -18,10 +18,10 @@ const (
 	MaxOutPolicyRunOnCaller     = 4 // run on "this" routine
 )
 
-var statusStringMap map[byte]string
+var statusStringMap map[int32]string
 
 func init() {
-	statusStringMap = make(map[byte]string)
+	statusStringMap = make(map[int32]string)
 	statusStringMap[IDLE] = "IDLE"
 	statusStringMap[RUNNING] = "RUNNING"
 	statusStringMap[TERMINATING] = "TERMINATING"
@@ -44,11 +44,10 @@ type asyncPool struct {
 	context               context.Context
 	cancelFunc            func()
 	stopWaitGroup         sync.WaitGroup
-	rwLock                *sync.RWMutex
 	channel               chan AsyncTask
 	numMaxWorkers         int32
 	numStartedWorkers     int32
-	status                byte
+	status                int32
 	logger                logger.Logger
 	maxPoolSize           int
 	maxOutPolicy          uint8
@@ -56,8 +55,6 @@ type asyncPool struct {
 }
 
 type AsyncPool interface {
-	getStatus() byte
-	setStatus(status byte)
 	HasStarted() bool
 	start()
 	Stop()
@@ -82,7 +79,6 @@ func NewAsyncPool(id string, maxPoolSize, workerSize int) AsyncPool {
 		ctx,
 		cancel,
 		sync.WaitGroup{},
-		new(sync.RWMutex),
 		make(chan AsyncTask, getInRangeInt(maxPoolSize, 16, 2048)),
 		int32(getInRangeInt(workerSize, 2, 1024)),
 		0,
@@ -95,32 +91,20 @@ func NewAsyncPool(id string, maxPoolSize, workerSize int) AsyncPool {
 	}
 }
 
-func (p *asyncPool) withWrite(cb func()) {
-	p.rwLock.Lock()
-	defer p.rwLock.Unlock()
-	cb()
+func (p *asyncPool) getStatus() int32 {
+	return atomic.LoadInt32(&p.status)
 }
 
-func (p *asyncPool) getStatus() byte {
-	p.rwLock.RLock()
-	defer p.rwLock.RUnlock()
-	return p.status
-}
-
-func (p *asyncPool) setStatus(status byte) {
-	p.rwLock.Lock()
-	defer p.rwLock.Unlock()
+func (p *asyncPool) setStatus(status int32) {
 	if status >= 0 && status < 4 {
-		p.status = status
+		atomic.StoreInt32(&p.status, status)
 		p.logger.Info("Pool status has transitioned to " + statusStringMap[status])
 	}
 	return
 }
 
 func (p *asyncPool) HasStarted() bool {
-	p.rwLock.RLock()
-	defer p.rwLock.RUnlock()
-	return p.status > IDLE
+	return p.getStatus() > IDLE
 }
 
 func (p *asyncPool) runWorker(index int32) {

@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -192,6 +193,13 @@ type Response struct {
 	Header  http.Header // usage just like map, can for each kv or ["headerKey"] gives an array of strings
 	Body    string
 	URI     string
+}
+
+// response util
+func ParseJSONResponseBody[T any](resp *Response) (holder T, err error) {
+	data := resp.Body
+	err = json.Unmarshal([]byte(data), &holder)
+	return
 }
 
 func fromRawResponse(resp *http.Response) (*Response, error) {

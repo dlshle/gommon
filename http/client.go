@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dlshle/gommon/logger"
+	"github.com/dlshle/gommon/utils"
 )
 
 // New version, need to deprecate http_client
@@ -197,9 +197,7 @@ type Response struct {
 
 // response util
 func ParseJSONResponseBody[T any](resp *Response) (holder T, err error) {
-	data := resp.Body
-	err = json.Unmarshal([]byte(data), &holder)
-	return
+	return utils.UnmarshalJSONEntity[T]([]byte(resp.Body))
 }
 
 func fromRawResponse(resp *http.Response) (*Response, error) {

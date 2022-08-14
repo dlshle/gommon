@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -176,6 +177,11 @@ func CheckNonZero[T comparable](val T) T {
 		panic(fmt.Sprintf("value %v is a zero val", val))
 	}
 	return val
+}
+
+func UnmarshalJSONEntity[T any](data []byte) (holder T, err error) {
+	err = json.Unmarshal([]byte(data), &holder)
+	return
 }
 
 func EncodeString(str string) string {

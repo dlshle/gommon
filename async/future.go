@@ -53,6 +53,7 @@ type Future interface {
 	GetWithTimeout(duration time.Duration) (interface{}, error)
 	IsDone() bool
 	Then(onSuccess func(interface{}) interface{}) Future
+	ThenWithExecutor(onSuccess func(interface{}) interface{}, executor Executor) Future
 	OnPanic(onPanic func(interface{})) Future
 }
 
@@ -150,15 +151,28 @@ func (f *future) IsDone() bool {
 	return f.waitLock.IsOpen()
 }
 
+func (f *future) ThenWithExecutor(onSuccess func(interface{}) interface{}, executor Executor) Future {
+	nextTask := f.assembleNextTask(onSuccess)
+	return f.then(newFuture(nextTask, executor, f))
+}
+
 func (f *future) Then(onSuccess func(interface{}) interface{}) Future {
-	nextTask := func() interface{} {
+	nextTask := f.assembleNextTask(onSuccess)
+	return f.then(newFuture(nextTask, f.executor, f))
+}
+
+func (f *future) assembleNextTask(onSuccess func(interface{}) interface{}) func() interface{} {
+	return func() interface{} {
 		result, panicEntity := f.waitAndGetResultAndPanicEntity()
 		if panicEntity != nil {
 			f.handlePanic(panicEntity)
 		}
 		return onSuccess(result)
 	}
-	f.nextFuture = newFuture(nextTask, f.executor, f)
+}
+
+func (f *future) then(nextFuture *future) Future {
+	f.nextFuture = nextFuture
 	if f.IsDone() {
 		if f.panicEntity != nil {
 			f.notifyAndPropagatePanicChain(f.panicEntity)

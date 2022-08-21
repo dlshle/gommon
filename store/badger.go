@@ -232,6 +232,10 @@ func (s badgerStore[K, V]) BulkPut(bulk map[K]V) (success bool, err error) {
 	return
 }
 
+func (s badgerStore[K, V]) WithTx(cb func(*badger.Txn) error) error {
+	return s.withWrite(cb)
+}
+
 func (s badgerStore[K, V]) iterate(cb func(k K, v V) error) error {
 	return s.withRead(func(tx *badger.Txn) error {
 		opt := badger.DefaultIteratorOptions

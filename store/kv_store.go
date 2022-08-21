@@ -1,5 +1,7 @@
 package store
 
+import badger "github.com/dgraph-io/badger/v3"
+
 type KVStore[K, V comparable] interface {
 	Get(key K) (res V, err error)
 	Has(key K) (bool, error)
@@ -10,6 +12,7 @@ type KVStore[K, V comparable] interface {
 	Iterate(itr func(key K, record V)) error
 	BulkGet(keys []K) (res []V, err error)
 	BulkPut(bulk map[K]V) (success bool, err error)
+	WithTx(cb func(*badger.Txn) error) error
 	Close() error
 	Drop() error
 }

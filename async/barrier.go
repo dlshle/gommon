@@ -5,20 +5,6 @@ import (
 	"sync/atomic"
 )
 
-type Waitable interface {
-	Wait()
-	IsOpen() bool
-}
-
-type Gettable interface {
-	Get() interface{}
-}
-
-type WaitGettable interface {
-	Waitable
-	Gettable
-}
-
 type WaitLock struct {
 	cond   *sync.Cond
 	isOpen atomic.Value

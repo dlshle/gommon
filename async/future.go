@@ -12,10 +12,6 @@ type FutureGetter interface {
 	Get() interface{}
 }
 
-type Executor interface {
-	Execute(task AsyncTask)
-}
-
 type directExecutor uint8
 
 func (e directExecutor) Execute(task AsyncTask) {

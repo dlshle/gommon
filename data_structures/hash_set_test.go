@@ -1,10 +1,11 @@
 package data_structures
 
 import (
-	"github.com/dlshle/gommon/test_utils"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/dlshle/gommon/test_utils"
 )
 
 func TestSet(t *testing.T) {

@@ -43,6 +43,7 @@ type RedisStore interface {
 	HExists(key string, field string) error
 	HGet(key string) (map[string]string, error)
 	HSet(key string, m map[string]interface{}) error
+	Delete(key string) error
 	Get(key string) (string, error)
 	Client() *redis.Client
 	Close() error

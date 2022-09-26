@@ -16,6 +16,7 @@ func ErrorWith(errMsgs ...string) error {
 	var errMsgBuilder strings.Builder
 	for _, msg := range errMsgs {
 		errMsgBuilder.WriteString(msg)
+		errMsgBuilder.WriteByte(';')
 	}
 	return Error(errMsgBuilder.String())
 }

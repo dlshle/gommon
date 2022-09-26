@@ -1,8 +1,9 @@
 package redis
 
 import (
-	"github.com/go-redis/redis"
 	"time"
+
+	"github.com/go-redis/redis"
 )
 
 const (
@@ -35,7 +36,7 @@ func NewRedisNotFoundErr() *RedisClientErr {
 	return NewRedisClientErr(ErrNotFound, ErrNotFoundStr)
 }
 
-type IRedisClient interface {
+type RedisStore interface {
 	Ping() (err error)
 	Set(key string, value interface{}) error
 	SetWithExp(key string, value interface{}, expiration time.Duration) error
@@ -51,7 +52,7 @@ type RedisClient struct {
 	client *redis.Client
 }
 
-func NewRedisClient(addr, pass string, maxRetries int) *RedisClient {
+func NewRedisClient(addr, pass string, maxRetries int) RedisStore {
 	opt := &redis.Options{
 		Addr: addr,
 	}

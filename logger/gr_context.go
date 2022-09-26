@@ -9,11 +9,16 @@ const (
 	prefix_len = 9
 )
 
-func Set(k, v string) {
+func GrSet(k, v string) {
 	gr_context.Put(prefix+k, v)
 }
 
-func Get(k string) string {
+// deprecated
+func Set(k, v string) {
+	GrSet(k, v)
+}
+
+func GrGet(k string) string {
 	rawValue := gr_context.Get(prefix + k)
 	if rawValue == nil {
 		return ""
@@ -21,7 +26,12 @@ func Get(k string) string {
 	return rawValue.(string)
 }
 
-func GetAll() (res map[string]string) {
+// deprecated
+func Get(k string) string {
+	return GrGet(k)
+}
+
+func GrGetAll() (res map[string]string) {
 	res = make(map[string]string)
 	subset := gr_context.GetByPrefix(prefix)
 	for k, v := range subset {
@@ -30,10 +40,25 @@ func GetAll() (res map[string]string) {
 	return
 }
 
+// deprecated
+func GetAll() map[string]string {
+	return GrGetAll()
+}
+
+// deprecated
 func Delete(k string) {
+	GrDelete(k)
+}
+
+func GrDelete(k string) {
 	gr_context.Delete(prefix + k)
 }
 
+// deprecated
 func Clear() {
+	GrClear()
+}
+
+func GrClear() {
 	gr_context.ClearByPrefix(prefix)
 }

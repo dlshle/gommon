@@ -83,14 +83,19 @@ func (s badgerStore[K, V]) withWrite(cb func(tx *badger.Txn) error) error {
 
 func (s badgerStore[K, V]) Get(key K) (res V, err error) {
 	err = s.withRead(func(tx *badger.Txn) error {
-		var serializedKey []byte
-		serializedKey, err = s.KeySerializer(key)
-		if err != nil {
-			return err
-		}
-		res, err = s.getValueBySerializedKey(tx, serializedKey)
+		res, err = s.GetWithTxn(tx, key)
 		return err
 	})
+	return
+}
+
+func (s badgerStore[K, V]) GetWithTxn(tx *badger.Txn, key K) (res V, err error) {
+	var serializedKey []byte
+	serializedKey, err = s.KeySerializer(key)
+	if err != nil {
+		return
+	}
+	res, err = s.getValueBySerializedKey(tx, serializedKey)
 	return
 }
 
@@ -146,40 +151,53 @@ func (s badgerStore[K, V]) Create(value V) (k K, v V, err error) {
 
 func (s badgerStore[K, V]) Put(key K, value V) (success bool, err error) {
 	err = s.withWrite(func(tx *badger.Txn) error {
-		serializedKey, serializedValue, err := s.serializeKV(key, value)
-		if err != nil {
-			return err
-		}
-		return tx.Set(serializedKey, serializedValue)
+		return s.PutWithTxn(tx, key, value)
 	})
 	return err == nil, err
+}
+
+func (s badgerStore[K, V]) PutWithTxn(tx *badger.Txn, key K, value V) (err error) {
+	serializedKey, serializedValue, err := s.serializeKV(key, value)
+	if err != nil {
+		return
+	}
+	return tx.Set(serializedKey, serializedValue)
 }
 
 func (s badgerStore[K, V]) Update(key K, value V) (success bool, err error) {
 	err = s.withWrite(func(tx *badger.Txn) error {
-		serializedKey, serializedValue, err := s.serializeKV(key, value)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Get(serializedKey)
-		// update only when record exists
-		if err == badger.ErrKeyNotFound {
-			return errors.Error("record " + string(serializedKey) + " does not exist")
-		}
-		return tx.Set(serializedKey, serializedValue)
+		return s.UpdateWithTxn(tx, key, value)
 	})
 	return err == nil, err
 }
 
+func (s badgerStore[K, V]) UpdateWithTxn(tx *badger.Txn, key K, value V) (err error) {
+	serializedKey, serializedValue, err := s.serializeKV(key, value)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Get(serializedKey)
+	// update only when record exists
+	if err == badger.ErrKeyNotFound {
+		return errors.Error("record " + string(serializedKey) + " does not exist")
+	}
+	return tx.Set(serializedKey, serializedValue)
+}
+
 func (s badgerStore[K, V]) Delete(key K) (bool, error) {
 	err := s.withWrite(func(tx *badger.Txn) error {
-		serializedKey, err := s.KeySerializer(key)
-		if err != nil {
-			return err
-		}
-		return tx.Delete(serializedKey)
+		return s.DeleteWithTx(tx, key)
 	})
 	return err != nil, err
+}
+
+func (s badgerStore[K, V]) DeleteWithTx(tx *badger.Txn, key K) error {
+	serializedKey, err := s.KeySerializer(key)
+	if err != nil {
+		return err
+	}
+	return tx.Delete(serializedKey)
+
 }
 
 func (s badgerStore[K, V]) Query(filter func(key K, record V) bool) (res []V, err error) {

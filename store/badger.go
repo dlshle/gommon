@@ -251,7 +251,8 @@ func (s badgerStore[K, V]) BulkPut(bulk map[K]V) (success bool, err error) {
 }
 
 func (s badgerStore[K, V]) WithTx(cb func(*badger.Txn) error) error {
-	return s.withWrite(cb)
+	txn := s.db.NewTransaction(true)
+	return cb(txn)
 }
 
 func (s badgerStore[K, V]) iterate(cb func(k K, v V) error) error {

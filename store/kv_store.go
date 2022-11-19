@@ -24,4 +24,5 @@ type KVStore[K, V comparable] interface {
 type AutoIncrKVStore[K, V comparable] interface {
 	KVStore[K, V]
 	Create(V) (K, V, error)
+	BulkAdd(entities []V) (entitiesWithIds map[K]V, err error)
 }

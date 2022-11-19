@@ -250,8 +250,44 @@ func (s badgerStore[K, V]) BulkPut(bulk map[K]V) (success bool, err error) {
 	return
 }
 
+func (s badgerStore[K, V]) BulkAdd(entities []V) (entitiesWithIds map[K]V, err error) {
+	var (
+		nextKey uint64
+		k       K
+	)
+	entitiesWithIds = make(map[K]V)
+	s.withWrite(func(tx *badger.Txn) error {
+		for _, entity := range entities {
+			err = utils.ProcessWithErrors(func() error {
+				if s.seq == nil {
+					return errors.Error("BulkAdd can not be applied in non-auto-incr-id store")
+				}
+				return nil
+			}, func() error {
+				nextKey, err = s.seq.Next()
+				return err
+			}, func() error {
+				k, err = s.KeyDeserializer(uint64ToBytes(nextKey))
+				return err
+			}, func() error {
+				err = s.PutWithTxn(tx, k, entity)
+				return err
+			}, func() error {
+				entitiesWithIds[k] = entity
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		}
+		return err
+	})
+	return
+}
+
 func (s badgerStore[K, V]) WithTx(cb func(*badger.Txn) error) error {
 	txn := s.db.NewTransaction(true)
+	defer txn.Discard()
 	return cb(txn)
 }
 

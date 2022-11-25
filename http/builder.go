@@ -57,7 +57,7 @@ func (h *httpClientBuilder) MaxConnsPerHost(n int) HTTPClientBuilder {
 	numMaxConnsPerHost := numWithinRange(n, 1, runtime.NumCPU()*8)
 	h.transport.MaxConnsPerHost = numMaxConnsPerHost
 	h.transport.MaxIdleConnsPerHost = numMaxConnsPerHost
-	h.transport.MaxIdleConnsPerHost = numMaxConnsPerHost / 5
+	h.transport.MaxIdleConns = numMaxConnsPerHost
 	return h
 }
 

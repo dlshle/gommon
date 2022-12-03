@@ -138,6 +138,9 @@ func (s badgerStore[K, V]) Create(value V) (k K, v V, err error) {
 		return nil
 	}, func() error {
 		nextKey, err = s.seq.Next()
+		if nextKey == 0 {
+			nextKey, err = s.seq.Next()
+		}
 		return err
 	}, func() error {
 		k, err = s.KeyDeserializer(uint64ToBytes(nextKey))
@@ -302,6 +305,10 @@ func (s badgerStore[K, V]) iterate(cb func(k K, v V) error) error {
 		for itr.Rewind(); itr.Valid(); itr.Next() {
 			item := itr.Item()
 			rawKey := item.Key()
+			if s.seq != nil && len(rawKey) != 8 {
+				// we probaly encountered a badger seq lease record, we should skip it
+				continue
+			}
 			var (
 				key   K
 				value V

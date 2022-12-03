@@ -265,6 +265,9 @@ func (s badgerStore[K, V]) BulkAdd(entities []V) (entitiesWithIds map[K]V, err e
 				return nil
 			}, func() error {
 				nextKey, err = s.seq.Next()
+				if nextKey == 0 {
+					nextKey, err = s.seq.Next()
+				}
 				return err
 			}, func() error {
 				k, err = s.KeyDeserializer(uint64ToBytes(nextKey))

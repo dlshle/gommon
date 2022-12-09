@@ -1,9 +1,10 @@
 package gr_context
 
 import (
-	"github.com/petermattis/goid"
 	"strings"
 	"sync"
+
+	"github.com/petermattis/goid"
 )
 
 // a goroutine local context maintainer
@@ -30,27 +31,44 @@ func getGRContextMap() (cm map[string]interface{}) {
 	return
 }
 
+func unsafeGetGRContextMap() (m map[string]interface{}) {
+	withLock(func() {
+		m = context[goid.Get()]
+	})
+	return
+}
+
 func Put(key string, v interface{}) {
 	getGRContextMap()[key] = v
 }
 
 func Get(key string) interface{} {
-	return getGRContextMap()[key]
+	m := unsafeGetGRContextMap()
+	if m == nil {
+		return nil
+	}
+	return m[key]
 }
 
-func GetByPrefix(prefix string) map[string]interface{} {
-	m := getGRContextMap()
-	subSet := make(map[string]interface{})
+func GetByPrefix(prefix string) (result map[string]interface{}) {
+	m := unsafeGetGRContextMap()
+	result = make(map[string]interface{})
+	if m == nil {
+		return
+	}
 	for k := range m {
 		if strings.HasPrefix(k, prefix) {
-			subSet[k] = m[k]
+			result[k] = m[k]
 		}
 	}
-	return subSet
+	return
 }
 
 func Delete(key string) {
-	m := getGRContextMap()
+	m := unsafeGetGRContextMap()
+	if m == nil {
+		return
+	}
 	delete(m, key)
 }
 
@@ -61,15 +79,13 @@ func Clear() {
 }
 
 func ClearByPrefix(prefix string) {
-	withLock(func() {
-		m := context[goid.Get()]
-		if m == nil {
-			return
+	m := unsafeGetGRContextMap()
+	if m == nil {
+		return
+	}
+	for k := range m {
+		if strings.HasPrefix(k, prefix) {
+			delete(m, k)
 		}
-		for k := range m {
-			if strings.HasPrefix(k, prefix) {
-				delete(m, k)
-			}
-		}
-	})
+	}
 }

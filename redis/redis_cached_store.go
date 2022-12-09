@@ -59,7 +59,11 @@ func (s *CachedStore) Has(id string) (bool, error) {
 		if err.Error() == ErrNotFoundStr {
 			return false, nil
 		}
-		return false, err
+		e, err := s.store.Get(id)
+		if err != nil {
+			return false, err
+		}
+		return e != nil, err
 	}
 	return true, nil
 }
@@ -69,30 +73,23 @@ func (s *CachedStore) Get(id string) (entity interface{}, err error) {
 	m, err = s.cache.HGet(id)
 	if err == nil {
 		s.logger.Printf("Fetch %s hit", id)
+		return s.store.ToEntityType(m)
 	}
-	if err != nil && err.Error() != ErrNotFoundStr {
-		// conn error
+	s.logger.Printf("Fetch %s miss", id)
+	entity, err = s.store.Get(id)
+	if err != nil {
 		return
 	}
-	// hget does not return NotFoundErr but an empty map
-	if err != nil && err.Error() == ErrNotFoundStr || m["id"] == "" {
-		s.logger.Printf("Fetch %s miss", id)
-		entity, err = s.store.Get(id)
-		if err != nil {
-			return
-		}
-		hm, terr := s.ToHashMap(entity)
-		if terr != nil {
-			err = terr
-			return
-		}
-		err = s.cache.HSet(id, hm)
-		if s.skipErrOnCacheFailure {
-			err = nil
-		}
+	hm, terr := s.ToHashMap(entity)
+	if terr != nil {
+		err = terr
 		return
 	}
-	return s.store.ToEntityType(m)
+	err = s.cache.HSet(id, hm)
+	if s.skipErrOnCacheFailure {
+		err = nil
+	}
+	return
 }
 
 func (s *CachedStore) Update(id string, value interface{}) error {

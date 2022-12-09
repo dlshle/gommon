@@ -67,6 +67,8 @@ type Logger interface {
 	Errorf(format string, records ...interface{})
 	Fatalf(format string, records ...interface{})
 
+	SetContext(k, v string)
+	DeleteContext(k string)
 	Prefix(prefix string)
 	PrefixWithPropogate(prefix string)
 	Format(format int)

@@ -2,7 +2,8 @@ package logger
 
 import "github.com/dlshle/gommon/gr_context"
 
-// a go routine safe global logging context maintainer
+// a "thread" safe go-routine level logging context maintainer
+// it lives and dies with the associated go-routine
 
 const (
 	prefix     = "$logging_"

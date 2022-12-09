@@ -149,6 +149,14 @@ func (l *LevelLogger) Fatalf(format string, records ...interface{}) {
 	l.output(FATAL, fmt.Sprintf(format, records...))
 }
 
+func (l *LevelLogger) SetContext(k, v string) {
+	l.context[k] = v
+}
+
+func (l *LevelLogger) DeleteContext(k string) {
+	delete(l.context, k)
+}
+
 func (l *LevelLogger) Prefix(prefix string) {
 	l.prefix = prefix
 }

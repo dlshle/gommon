@@ -1,13 +1,15 @@
+// deprecated
 package timed
 
 import (
-	"github.com/dlshle/gommon/async"
-	"github.com/dlshle/gommon/logger"
-	"github.com/dlshle/gommon/utils"
 	"os"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/dlshle/gommon/async"
+	"github.com/dlshle/gommon/logger"
+	"github.com/dlshle/gommon/utils"
 )
 
 const (

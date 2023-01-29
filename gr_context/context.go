@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/petermattis/goid"
+	tls "github.com/huandu/go-tls"
 )
 
 // a goroutine local context maintainer
@@ -21,7 +21,7 @@ func withLock(cb func()) {
 
 func getGRContextMap() (cm map[string]interface{}) {
 	withLock(func() {
-		id := goid.Get()
+		id := tls.ID()
 		cm = context[id]
 		if cm == nil {
 			cm = make(map[string]interface{})
@@ -33,7 +33,7 @@ func getGRContextMap() (cm map[string]interface{}) {
 
 func unsafeGetGRContextMap() (m map[string]interface{}) {
 	withLock(func() {
-		m = context[goid.Get()]
+		m = context[tls.ID()]
 	})
 	return
 }
@@ -74,7 +74,7 @@ func Delete(key string) {
 
 func Clear() {
 	withLock(func() {
-		delete(context, goid.Get())
+		delete(context, tls.ID())
 	})
 }
 

@@ -1,5 +1,6 @@
 package logger
 
+// global context lives and dies with the running process
 var ctx = make(map[string]string)
 
 func SetGlobalContext(k, v string) {

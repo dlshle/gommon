@@ -1,4 +1,4 @@
-package logger
+package logging
 
 import (
 	"fmt"
@@ -24,7 +24,6 @@ type FileWriter struct {
 	logDataSize   int
 	lock          *sync.Mutex
 	size          int
-	dataChan      chan []byte
 }
 
 func (w *FileWriter) Write(data []byte) (int, error) {

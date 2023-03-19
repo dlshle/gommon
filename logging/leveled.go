@@ -91,12 +91,14 @@ func (l *LevelLogger) prepareContext(ctx context.Context) map[string]string {
 	for k, v := range l.context {
 		allContext[k] = v
 	}
-	iLoggingCtx := ctx.Value(CtxValLoggingContext)
-	if iLoggingCtx != nil {
-		loggingCtx, ok := iLoggingCtx.(map[string]string)
-		if ok {
-			for k, v := range loggingCtx {
-				allContext[k] = v
+	if ctx != nil {
+		iLoggingCtx := ctx.Value(CtxValLoggingContext)
+		if iLoggingCtx != nil {
+			loggingCtx, ok := iLoggingCtx.(map[string]string)
+			if ok {
+				for k, v := range loggingCtx {
+					allContext[k] = v
+				}
 			}
 		}
 	}

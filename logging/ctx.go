@@ -5,7 +5,7 @@ import "context"
 func WrapCtx(ctx context.Context, key, val string) context.Context {
 	originalValue := ctx.Value(CtxValLoggingContext)
 	var mapCtx map[string]string
-	if originalValue == nil {
+	if originalValue != nil {
 		mapCtx = originalValue.(map[string]string)
 	}
 	if mapCtx == nil {

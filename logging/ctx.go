@@ -11,5 +11,6 @@ func WrapCtx(ctx context.Context, key, val string) context.Context {
 	if mapCtx == nil {
 		mapCtx = make(map[string]string)
 	}
+	mapCtx[key] = val
 	return context.WithValue(ctx, CtxValLoggingContext, mapCtx)
 }

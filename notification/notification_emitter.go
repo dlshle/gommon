@@ -23,7 +23,7 @@ type notificationEmitter[T comparable] struct {
 type WRNotificationEmitter[T comparable] interface {
 	HasEvent(eventID string) bool
 	MessageListenerCount(eventID string) int
-	Notify(eventID string, payload T)
+	Notify(eventID string, payload T) bool
 	NotifyAsync(eventID string, payload T, executor async.Executor)
 	On(eventID string, listener EventListener[T]) (Disposable, error)
 	Once(eventID string, listener EventListener[T]) (Disposable, error)
@@ -105,9 +105,9 @@ func (e *notificationEmitter[T]) HasEvent(eventID string) bool {
 	return e.listeners[eventID] != nil
 }
 
-func (e *notificationEmitter[T]) Notify(eventID string, payload T) {
+func (e *notificationEmitter[T]) Notify(eventID string, payload T) bool {
 	if !e.HasEvent(eventID) {
-		return
+		return false
 	}
 	e.lock.RLock()
 	listeners := e.listeners[eventID]
@@ -123,6 +123,7 @@ func (e *notificationEmitter[T]) Notify(eventID string, payload T) {
 		}
 	}
 	wg.Wait()
+	return true
 }
 
 func (e *notificationEmitter[T]) NotifyAsync(eventID string, payload T, executor async.Executor) {

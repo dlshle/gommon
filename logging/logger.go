@@ -71,6 +71,7 @@ type Logger interface {
 	Fatalf(ctx context.Context, format string, records ...interface{})
 
 	SetContext(k, v string)
+	SetWaterMark(int)
 	DeleteContext(k string)
 	Prefix(prefix string)
 	PrefixWithPropogate(prefix string)
@@ -85,6 +86,7 @@ type Logger interface {
 
 	WithContext(context map[string]string) Logger
 	WithGRContextLogging(bool) Logger
+	WithWaterMark(int) Logger
 }
 
 type LogEntity struct {

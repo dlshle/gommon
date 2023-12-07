@@ -27,9 +27,6 @@ import (
 // TODO, Go http client already has connection reusability built-in, so no need to use the producer/consumer pattern here unless request limitation is required
 type Request = http.Request
 
-// logger
-var globalLogger = logger.New(os.Stdout, "[NetworkClient]", true)
-
 // request status error message_dispatcher
 var requestStatusErrorStringMap map[int32]string
 var requestStatusErrorCodeMap map[int32]int
@@ -159,7 +156,7 @@ func (b *requestBuilder) Method(method string) RequestBuilder {
 func (b *requestBuilder) URL(url string) RequestBuilder {
 	u, err := urlpkg.Parse(url)
 	if err != nil {
-		globalLogger.Printf("Unable to parse url(%s), fallback to original url(%s).\n", url, b.request.URL.String())
+		// globalLogger.Printf("Unable to parse url(%s), fallback to original url(%s).\n", url, b.request.URL.String())
 		return b
 	}
 	b.request.URL = u

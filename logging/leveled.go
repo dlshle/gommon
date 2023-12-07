@@ -230,3 +230,19 @@ func (l *LevelLogger) WithContext(context map[string]string) Logger {
 	l.subLoggers = append(l.subLoggers, subLogger)
 	return subLogger
 }
+
+func (l *LevelLogger) SetWaterMark(waterMark int) {
+	l.logLevelWaterMark = waterMark
+}
+
+func (l *LevelLogger) WithWaterMark(waterMark int) Logger {
+	subLogger := &LevelLogger{
+		writer:            l.writer,
+		prefix:            l.prefix,
+		logLevelWaterMark: waterMark,
+		context:           l.context,
+		subLoggers:        make([]Logger, 0),
+	}
+	l.subLoggers = append(l.subLoggers, subLogger)
+	return subLogger
+}

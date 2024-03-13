@@ -4,6 +4,8 @@ type AsyncTask func()
 
 type ComputableAsyncTask func() interface{}
 
+type ComputableAsyncTaskWithError func() (interface{}, error)
+
 type Waitable interface {
 	Wait()
 	IsOpen() bool

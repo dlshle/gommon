@@ -15,7 +15,7 @@ func TestFuture(t *testing.T) {
 			}
 			return NewComputedFuture(func() interface{} {
 				return true
-			}, NewGoRoutineExecutor).Then(flipper).Then(flipper).Then(flipper).Then(flipper).Run().MustGet().(bool)
+			}, NewGoRoutineExecutor).Then(flipper).Then(flipper).Then(flipper).Then(flipper).MustGet().(bool)
 		}),
 		test_utils.NewTestCase("new goroutine executor chain with panic", "", func() bool {
 			var errMsg string
@@ -27,7 +27,7 @@ func TestFuture(t *testing.T) {
 				return nil
 			}).OnPanic(func(panicEntity interface{}) {
 				errMsg = panicEntity.(string)
-			}).Run().Wait()
+			}).Wait()
 			return errMsg == "err"
 		}),
 		test_utils.NewTestCase("async pool executor single chain with no panic", "", func() bool {
@@ -40,7 +40,7 @@ func TestFuture(t *testing.T) {
 			NewComputedFuture(func() interface{} {
 				counter++
 				return counter
-			}, pool).Then(incrAndReturnCounter).Then(incrAndReturnCounter).Then(incrAndReturnCounter).Then(incrAndReturnCounter).Run().Wait()
+			}, pool).Then(incrAndReturnCounter).Then(incrAndReturnCounter).Then(incrAndReturnCounter).Then(incrAndReturnCounter).Wait()
 			t.Logf("started worker: %d", pool.NumStartedWorkers())
 			return counter == 5
 		}),
@@ -60,7 +60,7 @@ func TestFuture(t *testing.T) {
 				return counter
 			}, pool).Then(incrAndReturnCounter).Then(func(interface{}) interface{} {
 				panic("err")
-			}).OnPanic(incrAndReturnErrCounter).Then(incrAndReturnCounter).OnPanic(incrAndReturnErrCounter).Then(incrAndReturnCounter).Run().Wait()
+			}).OnPanic(incrAndReturnErrCounter).Then(incrAndReturnCounter).OnPanic(incrAndReturnErrCounter).Then(incrAndReturnCounter).Wait()
 			t.Logf("started worker: %d", pool.NumStartedWorkers())
 			return counter == 2 && errCounter == 2
 		}),
@@ -78,7 +78,7 @@ func TestFuture(t *testing.T) {
 			}, pool).Then(incrAndReturnCounter)
 			f.Then(incrAndReturnCounter).OnPanic(func(err interface{}) {
 				t.Logf("%v", err)
-			}).Run()
+			})
 			f.Cancel()
 			t.Logf("started worker: %d", pool.NumStartedWorkers())
 			return counter == 0

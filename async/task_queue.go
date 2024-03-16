@@ -31,14 +31,14 @@ func (q *taskQueue) addTask(e AsyncTask) {
 	if q.size == 0 {
 		q.head = &taskNode{e, nil}
 		q.tail = q.head
+		q.size += 1
 		q.mutex.Unlock()
-		q.incrSizeBy(1)
 		return
 	}
 	q.tail.next = &taskNode{e, nil}
 	q.tail = q.tail.next
+	q.size += 1
 	q.mutex.Unlock()
-	q.incrSizeBy(1)
 }
 
 func (q *taskQueue) getTask() AsyncTask {
@@ -52,8 +52,8 @@ func (q *taskQueue) getTask() AsyncTask {
 	val = lastHead.t
 	q.head = q.head.next
 	lastHead = nil
+	q.size -= 1
 	q.mutex.Unlock()
-	q.incrSizeBy(-1)
 	return val
 }
 
@@ -63,8 +63,4 @@ func (q *taskQueue) numTasks() int {
 
 func (q *taskQueue) isEmpty() bool {
 	return q.numTasks() == 0
-}
-
-func (q *taskQueue) incrSizeBy(d int32) {
-	atomic.AddInt32(&q.size, d)
 }

@@ -8,14 +8,13 @@ import (
 	"math/rand"
 	"net/http"
 	urlpkg "net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/dlshle/gommon/logger"
+	"github.com/dlshle/gommon/logging"
 	"github.com/dlshle/gommon/utils"
 )
 
@@ -26,6 +25,19 @@ import (
 // TODO, need a customized request capable of retry
 // TODO, Go http client already has connection reusability built-in, so no need to use the producer/consumer pattern here unless request limitation is required
 type Request = http.Request
+
+var (
+	requestPool sync.Pool = sync.Pool{
+		New: func() any {
+			return &http.Request{}
+		},
+	}
+	responsePool sync.Pool = sync.Pool{
+		New: func() any {
+			return &http.Response{}
+		},
+	}
+)
 
 // request status error message_dispatcher
 var requestStatusErrorStringMap map[int32]string
@@ -138,7 +150,8 @@ type RequestBuilder interface {
 }
 
 func NewRequestBuilder() RequestBuilder {
-	return &requestBuilder{&http.Request{}}
+	req := requestPool.Get().(*http.Request)
+	return &requestBuilder{req}
 }
 
 func (b *requestBuilder) Build() *http.Request {
@@ -270,7 +283,7 @@ type trackableRequest struct {
 }
 
 type TrackableRequest interface {
-	Id() string
+	ID() string
 	Status() int32
 	Update(request *http.Request) error
 	Cancel() error
@@ -279,12 +292,12 @@ type TrackableRequest interface {
 	setStatus(status int32)
 }
 
-func NewTrackableRequest(request *http.Request) TrackableRequest {
+func newTrackableRequest(request *http.Request) TrackableRequest {
 	id := strconv.FormatInt(randomGenerator.Int63n(time.Now().Unix()), 16)
 	return &trackableRequest{id, RequestStatusIdle, request, newAwaitableResponse()}
 }
 
-func (tr *trackableRequest) Id() string {
+func (tr *trackableRequest) ID() string {
 	return tr.id
 }
 
@@ -294,6 +307,11 @@ func (tr *trackableRequest) Status() int32 {
 
 func (tr *trackableRequest) setStatus(status int32) {
 	atomic.StoreInt32(&tr.status, status)
+}
+
+func (tr *trackableRequest) complete() {
+	tr.setStatus(RequestStatusDone)
+	requestPool.Put(tr.request)
 }
 
 func (tr *trackableRequest) getRequest() *http.Request {
@@ -349,7 +367,7 @@ type httpClient struct {
 	cancelFunc  func()
 	id          string
 	queue       chan TrackableRequest
-	logger      *logger.SimpleLogger
+	logger      logging.Logger
 	status      int
 	rwMutex     *sync.RWMutex
 	workerSize  int
@@ -394,6 +412,10 @@ func newHTTPClient(timeout int) *http.Client {
 	}
 }
 
+func NewHTTPClient(maxConcurrentRequests, maxQueueSize, timeoutInSec int) HTTPClient {
+	return New(utils.RandomStringWithSize(5), maxConcurrentRequests, maxQueueSize, timeoutInSec)
+}
+
 func New(id string, maxConcurrentRequests, maxQueueSize, timeoutInSec int) HTTPClient {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	var stopWg sync.WaitGroup
@@ -408,7 +430,7 @@ func New(id string, maxConcurrentRequests, maxQueueSize, timeoutInSec int) HTTPC
 		cancelFunc,
 		id,
 		make(chan TrackableRequest, maxQueueSize),
-		logger.New(os.Stdout, fmt.Sprintf("HttpClient[%s]", id), false),
+		logging.GlobalLogger.WithPrefix("http-" + id).WithWaterMark(logging.FATAL),
 		PoolStatusIdle,
 		new(sync.RWMutex),
 		maxConcurrentRequests,
@@ -457,7 +479,7 @@ func (c *httpClient) workerFunc(id int) {
 	numSuccess := 0
 	numFailed := 0
 	taggedLogger := c.logger.WithPrefix(fmt.Sprintf("[Worker-%d]", id))
-	taggedLogger.Printf("worker has started.")
+	taggedLogger.Debugf(c.ctx, "worker has started.")
 	shouldContinue := true
 	for shouldContinue {
 		select {
@@ -468,7 +490,7 @@ func (c *httpClient) workerFunc(id int) {
 			}
 			request := req.(*trackableRequest)
 			if request.Status() != RequestStatusWaiting {
-				taggedLogger.Printf("skip request(%s) due to invalid status(%d).", request.Id(), request.Status())
+				taggedLogger.Debugf(c.ctx, "skip request(%s) due to invalid status(%d).", request.ID(), request.Status())
 			} else {
 				numRequests++
 				success := c.executeRequest(taggedLogger, request)
@@ -485,29 +507,30 @@ func (c *httpClient) workerFunc(id int) {
 			shouldContinue = false
 		}
 	}
-	taggedLogger.Printf("worker lifecycle is finished, numRequests: %d, numSuccessRequests: %d, numFailedRequests: %d", numRequests, numSuccess, numFailed)
+	taggedLogger.Debugf(c.ctx, "worker lifecycle is finished, numRequests: %d, numSuccessRequests: %d, numFailedRequests: %d", numRequests, numSuccess, numFailed)
 	c.decrementWorkerCount()
 	c.stopWg.Done()
 }
 
-func (c *httpClient) executeRequest(taggedLogger *logger.SimpleLogger, request *trackableRequest) (success bool) {
+func (c *httpClient) executeRequest(taggedLogger logging.Logger, request *trackableRequest) (success bool) {
 	request.setStatus(RequestStatusInProgress)
-	taggedLogger.Printf("worker has acquired request(%s, %d) with rawRequest %+v.", request.id, request.Status(), request.getRequest())
+	taggedLogger.Debugf(c.ctx, "worker has acquired request(%s, %d) with rawRequest %+v.", request.id, request.Status(), request.getRequest())
 	rawResponse, err := c.baseClient.Do(request.getRequest())
+	request.complete()
 	if err != nil || rawResponse == nil {
-		taggedLogger.Printf("request failed due to %s, will resolve it with invalid response(-1).", err.Error())
+		taggedLogger.Debugf(c.ctx, "request failed due to %s, will resolve it with invalid response(-1).", err.Error())
 		request.response.resolve(invalidResponse("failed: "+err.Error(), -1))
 		success = false
 	} else {
 		response, err := fromRawResponse(rawResponse)
 		if err != nil {
-			taggedLogger.Printf("unable to parse response body of %+v.\n", rawResponse)
+			taggedLogger.Debugf(c.ctx, "unable to parse response body of %+v.\n", rawResponse)
 			success = false
 		} else {
 			success = true
 		}
 		request.response.resolve(response)
-		taggedLogger.Printf("request(%s) has been resolved. Response: %+v.\n", request.id, response)
+		taggedLogger.Debugf(c.ctx, "request(%s) has been resolved. Response: %+v.\n", request.id, response)
 	}
 	return
 }
@@ -524,7 +547,7 @@ func (c *httpClient) setStatus(status int) {
 	defer c.rwMutex.Unlock()
 	oldStatus := c.status
 	c.status = status
-	c.logger.Printf("Switched pool status from %s to %s\n", poolStatusStringMap[oldStatus], poolStatusStringMap[status])
+	c.logger.Debugf(c.ctx, "Switched pool status from %s to %s\n", poolStatusStringMap[oldStatus], poolStatusStringMap[status])
 }
 
 func (c *httpClient) Id() string {
@@ -539,8 +562,8 @@ func (c *httpClient) Status() int {
 
 func (c *httpClient) request(request *http.Request) TrackableRequest {
 	loggerTag := "[Handle]"
-	c.logger.Printf("%s New request received: %+v\nCurrent queue size: %d\n", loggerTag, request, len(c.queue))
-	tRequest := NewTrackableRequest(request)
+	c.logger.Debugf(c.ctx, "%s New request received: %+v\nCurrent queue size: %d\n", loggerTag, request, len(c.queue))
+	tRequest := newTrackableRequest(request)
 	tRequest.setStatus(RequestStatusWaiting)
 	if c.Status() != PoolStatusRunning {
 		tRequest.(*trackableRequest).response.resolve(invalidResponse("client is closed", -1))
@@ -557,7 +580,7 @@ func (c *httpClient) request(request *http.Request) TrackableRequest {
 }
 
 func (c *httpClient) DoRequest(request *http.Request) *Response {
-	tRequest := NewTrackableRequest(request)
+	tRequest := newTrackableRequest(request)
 	tRequest.setStatus(RequestStatusWaiting)
 	c.executeRequest(c.logger.WithPrefix("[direct]"), tRequest.(*trackableRequest))
 	return tRequest.Response()
@@ -598,5 +621,9 @@ func (c *httpClient) BatchRequestAsync(requests []*http.Request) []TrackableRequ
 }
 
 func (c *httpClient) Verbose(use bool) {
-	c.logger.Verbose(use)
+	if !use {
+		c.logger.SetWaterMark(logging.FATAL)
+	} else {
+		c.logger.SetWaterMark(logging.DEBUG)
+	}
 }

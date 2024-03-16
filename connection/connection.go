@@ -1,6 +1,6 @@
 package connection
 
-type IConnection interface {
+type Connection interface {
 	ConnectionType() uint8
 	Close() error
 	Read() ([]byte, error)

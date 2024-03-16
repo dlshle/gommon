@@ -1,3 +1,4 @@
+/*
 package redis
 
 import (
@@ -157,3 +158,5 @@ func (s *CachedStore) Delete(id string) error {
 		return s.writeBackAction(func() error { return s.store.Delete(id) }, func() error { return s.cacheSafeDelete(id) })
 	}
 }
+
+*/

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dlshle/gommon/errors"
 	"github.com/dlshle/gommon/test_utils"
 )
 
@@ -107,5 +108,90 @@ func TestFuture(t *testing.T) {
 				return true
 			}, NewAsyncPool("", 128, 64)).MustGet().(bool)
 		}).WithMultiple(10, true).(*test_utils.Assertion),
+		test_utils.NewTestCase("error catching propogation", "", func() bool {
+			mappedErr, err := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+				go func() {
+					time.Sleep(1 * time.Second)
+					ea(errors.Error("mock error"))
+				}()
+			}).Then(func(i interface{}) interface{} {
+				test_utils.AssertEquals("failed", "first")
+				return nil
+			}).Then(func(i interface{}) interface{} {
+				test_utils.AssertEquals("failed", "second")
+				return nil
+			}).OnError(func(err error) {
+				test_utils.AssertEquals(err.Error(), "mock error")
+			}).Get()
+			test_utils.AssertEquals(err.Error(), "mock error")
+			test_utils.AssertNil(mappedErr)
+			return true
+		}),
+		test_utils.NewTestCase("error catching propogation with mapping", "", func() bool {
+			mappedErr, err := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+				go func() {
+					time.Sleep(1 * time.Second)
+					ea(errors.Error("mock error"))
+				}()
+			}).Then(func(i interface{}) interface{} {
+				test_utils.AssertEquals("failed", "first")
+				return nil
+			}).Then(func(i interface{}) interface{} {
+				test_utils.AssertEquals("failed", "second")
+				return nil
+			}).OnError(func(err error) {
+				// error handler should process with this fn iff no MapError is invoked
+				test_utils.AssertEquals("failed", "shuoldn't come here since error is mapped")
+			}).MapError(func(err error) interface{} {
+				test_utils.AssertEquals(err.Error(), "mock error")
+				return err
+			}).Get()
+			test_utils.AssertEquals(err.Error(), "mock error")
+			casted, ok := mappedErr.(error)
+			test_utils.AssertTrue(ok)
+			test_utils.AssertEquals(casted.Error(), "mock error")
+			return true
+		}),
+		test_utils.NewTestCase("panic catching propogation", "", func() bool {
+			mappedErr, err := newAsyncTaskFuture(func() {
+				panic(1)
+			}, NewGoRoutineExecutor).Then(func(i interface{}) interface{} {
+				test_utils.AssertEquals("failed", "first")
+				return nil
+			}).Then(func(i interface{}) interface{} {
+				test_utils.AssertEquals("failed", "second")
+				return nil
+			}).OnPanic(func(err interface{}) {
+				casted, ok := err.(int)
+				test_utils.AssertTrue(ok)
+				test_utils.AssertEquals(casted, 1)
+			}).Get()
+			test_utils.AssertNil(mappedErr)
+			test_utils.AssertNil(err)
+			return true
+		}),
+		test_utils.NewTestCase("pani catching propogation with mapping", "", func() bool {
+			mappedErr, err := newAsyncTaskFuture(func() {
+				panic(1)
+			}, NewGoRoutineExecutor).Then(func(i interface{}) interface{} {
+				test_utils.AssertEquals("failed", "first")
+				return nil
+			}).Then(func(i interface{}) interface{} {
+				test_utils.AssertEquals("failed", "second")
+				return nil
+			}).OnError(func(err error) {
+				test_utils.AssertEquals("failed", "shouldn't come here")
+			}).MapPanic(func(err interface{}) interface{} {
+				casted, ok := err.(int)
+				test_utils.AssertTrue(ok)
+				test_utils.AssertEquals(casted, 1)
+				return casted + 1
+			}).Get()
+			test_utils.AssertNil(err)
+			casted, ok := mappedErr.(int)
+			test_utils.AssertTrue(ok)
+			test_utils.AssertEquals(casted, 2)
+			return true
+		}),
 	}).Do(t)
 }

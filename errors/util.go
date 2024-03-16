@@ -1,6 +1,9 @@
 package errors
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 type quickErr string
 
@@ -10,6 +13,10 @@ func (q quickErr) Error() string {
 
 func Error(msg string) error {
 	return quickErr(msg)
+}
+
+func Errorf(formatter string, fields ...any) error {
+	return fmt.Errorf(formatter, fields...)
 }
 
 func ErrorWith(errMsgs ...string) error {

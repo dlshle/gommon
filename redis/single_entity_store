@@ -1,3 +1,4 @@
+/*
 package redis
 
 import (
@@ -139,3 +140,4 @@ func (s *redisEntityStore[T]) cacheHit(id string) {
 func (s *redisEntityStore[T]) cacheMiss(id string) {
 	atomic.AddUint32(&s.missCount, 1)
 }
+*/

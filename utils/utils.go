@@ -187,3 +187,14 @@ func UnmarshalJSONEntity[T any](data []byte) (holder T, err error) {
 func EncodeString(str string) string {
 	return strings.ReplaceAll(str, "\"", "\\\"")
 }
+
+func RandomStringWithSize(size int) string {
+	str := "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	bytes := []byte(str)
+	result := []byte{}
+	r := NewRand()
+	for i := 0; i < size; i++ {
+		result = append(result, bytes[r.Intn(len(bytes))])
+	}
+	return string(result)
+}

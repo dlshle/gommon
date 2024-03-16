@@ -3,12 +3,12 @@ package async
 import (
 	"context"
 	"fmt"
-	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
 
-	"github.com/dlshle/gommon/logger"
+	"github.com/dlshle/gommon/logging"
+	"github.com/dlshle/gommon/utils"
 )
 
 const (
@@ -40,15 +40,14 @@ const (
 
 type asyncPool struct {
 	id                    string
-	context               context.Context
+	ctx                   context.Context
 	cancelFunc            func()
 	stopWaitGroup         sync.WaitGroup
-	channel               chan AsyncTask
 	tasks                 *taskQueue
 	numMaxWorkers         int32
 	numRunningWorkers     int32
 	status                int32
-	logger                logger.Logger
+	logger                logging.Logger
 	maxPoolSize           int
 	maxOutPolicy          uint8
 	numWorkerInstantiated int32
@@ -72,6 +71,10 @@ type AsyncPool interface {
 	NumGoroutineInitiated() int32
 }
 
+func NewPool(maxPoolSize, workerSize int) AsyncPool {
+	return NewAsyncPool("default-"+utils.RandomStringWithSize(5), maxPoolSize, workerSize)
+}
+
 func NewAsyncPool(id string, maxPoolSize, workerSize int) AsyncPool {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &asyncPool{
@@ -79,13 +82,11 @@ func NewAsyncPool(id string, maxPoolSize, workerSize int) AsyncPool {
 		ctx,
 		cancel,
 		sync.WaitGroup{},
-		make(chan AsyncTask, getInRangeInt(maxPoolSize, 16, 2048)),
 		newTaskQueue(),
-		int32(getInRangeInt(workerSize, 2, 1024)),
+		int32(getInRangeInt(workerSize, 2, cpuCount*1024)),
 		0,
 		0,
-		// logger.New(os.Stdout, fmt.Sprintf("asyncPool[%s]", id), false),
-		logger.CreateLevelLogger(logger.NewNoopWriter(), "[AsyncPool"+id+"]", -1),
+		logging.GlobalLogger.WithPrefix("[AsyncPool" + id + "]").WithWaterMark(logging.ERROR),
 		maxPoolSize,
 		MaxOutPolicyWait,
 		0,
@@ -108,9 +109,8 @@ func (p *asyncPool) getStatus() int32 {
 func (p *asyncPool) setStatus(status int32) {
 	if status >= 0 && status < 4 {
 		atomic.StoreInt32(&p.status, status)
-		p.logger.Info("Pool status has transitioned to " + statusStringMap[status])
+		p.logger.Info(p.ctx, "Pool status has transitioned to "+statusStringMap[status])
 	}
-	return
 }
 
 func (p *asyncPool) HasStarted() bool {
@@ -135,7 +135,7 @@ func (p *asyncPool) runWorker(index int32) {
 			if p.NumPendingTasks() == 0 {
 				shouldContinue = false
 			}
-		case <-p.context.Done():
+		case <-p.ctx.Done():
 			shouldContinue = false
 		}
 	}
@@ -145,7 +145,7 @@ func (p *asyncPool) runWorker(index int32) {
 
 func (p *asyncPool) tryAddAndRunWorker() {
 	if p.getStatus() > RUNNING {
-		p.logger.Warn("status is terminating or terminated, can not add new worker")
+		p.logger.Warn(p.ctx, "status is terminating or terminated, can not add new worker")
 		return
 	}
 	if p.NumPendingTasks() > 0 && p.NumStartedWorkers() < p.NumMaxWorkers() {
@@ -169,7 +169,7 @@ func (p *asyncPool) start() {
 
 func (p *asyncPool) Stop() {
 	if !p.HasStarted() {
-		p.logger.Warn("pool has not started")
+		p.logger.Warn(p.ctx, "pool has not started")
 		return
 	}
 	p.cancelFunc()
@@ -201,7 +201,7 @@ func (p *asyncPool) handlePoolSizeExceeded(task AsyncTask) {
 	case MaxOutPolicyPanic:
 		panic(fmt.Sprintf("max pool size(%d) exceeded", p.maxPoolSize))
 	case MaxOutPolicyDiscard:
-		p.logger.Warnf("task %p is discarded", task)
+		p.logger.Warnf(p.ctx, "task %p is discarded", task)
 		return
 	case MaxOutPolicyRunOnCaller:
 		task()
@@ -241,9 +241,9 @@ func (p *asyncPool) ScheduleComputable(computableTask ComputableAsyncTask) WaitG
 
 func (p *asyncPool) Verbose(use bool) {
 	if use {
-		p.logger.Writer(logger.NewConsoleLogWriter(os.Stdout))
+		p.logger.SetWaterMark(logging.DEBUG)
 	} else {
-		p.logger.Writer(logger.NewNoopWriter())
+		p.logger.SetWaterMark(logging.FATAL)
 	}
 }
 
@@ -294,7 +294,7 @@ func (p *asyncPool) SetMaxOutPolicy(policy uint8) AsyncPool {
 }
 
 func (p *asyncPool) NumGoroutineInitiated() int32 {
-	return atomic.LoadInt32(&p.numWorkerInstantiated)
+	return atomic.LoadInt32(&p.numWorkerInstantiated) + 1
 }
 
 func (p *asyncPool) SetPanicHandler(handler func(interface{})) AsyncPool {
@@ -305,7 +305,7 @@ func (p *asyncPool) SetPanicHandler(handler func(interface{})) AsyncPool {
 func (p *asyncPool) safeRunVoid(task AsyncTask) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			p.logger.Errorf("task failed due to: %v", recovered)
+			p.logger.Errorf(p.ctx, "task failed due to: %v", recovered)
 			if p.onPanicHandler != nil {
 				p.onPanicHandler(recovered)
 			}

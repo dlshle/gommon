@@ -30,7 +30,7 @@ func TestClient(t *testing.T) {
 		t.Log(at.Response().Code)
 		if !at.Response().Success {
 			t.FailNow()
-			t.Logf("request %s failed with %s", at.Id(), at.Response().Body)
+			t.Logf("request %s failed with %s", at.ID(), at.Response().Body)
 		}
 	}
 	t.Logf("last resp body: %s", respArr[len(respArr)-1].Response().Body)

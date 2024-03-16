@@ -87,3 +87,20 @@ func Of[T comparable](val T) Optional[T] {
 		val: val,
 	}
 }
+
+func compose(fns ...func(any) any) func(any) any {
+	if fns == nil {
+		panic("composing function shuold take at least 1 input function")
+	}
+	return func(input any) (mapped any) {
+		var res any
+		for i, fn := range fns {
+			if i == 0 {
+				res = fn(input)
+			} else {
+				res = fn(res)
+			}
+		}
+		return res
+	}
+}

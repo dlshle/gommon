@@ -52,22 +52,26 @@ type Future interface {
 	ThenWithFuture(future Future) Future
 	OnPanic(onPanic func(interface{})) Future
 	OnError(onError func(error)) Future
+	MapError(mappingFn func(error) interface{}) Future
+	MapPanic(mappingFn func(interface{}) interface{}) Future
 }
 
 type OptionalParamOperation func(interface{}) interface{}
 
 type future struct {
-	executor    Executor
-	waitLock    *WaitLock
-	task        ComputableAsyncTaskWithError
-	result      interface{}
-	panicEntity interface{}
-	errEntity   error
-	isRunning   atomic.Value
-	prevFuture  *future
-	nextFuture  *future
-	onPanic     func(interface{})
-	onError     func(error)
+	executor       Executor
+	waitLock       *WaitLock
+	task           ComputableAsyncTaskWithError
+	result         interface{}
+	panicEntity    interface{}
+	errEntity      error
+	isRunning      atomic.Value
+	prevFuture     *future
+	nextFuture     *future
+	onPanic        func(interface{})
+	propogatePanic bool
+	onError        func(error)
+	propogateError bool
 }
 
 func newAsyncTaskFuture(task AsyncTask, executor Executor) *future {
@@ -91,11 +95,13 @@ func newComputedWithErrorFuture(task ComputableAsyncTaskWithError, executor Exec
 
 func newFuture(task ComputableAsyncTaskWithError, executor Executor, prevFuture *future) *future {
 	f := &future{
-		prevFuture: prevFuture,
-		executor:   executor,
-		waitLock:   NewWaitLock(),
-		task:       task,
-		isRunning:  atomic.Value{},
+		prevFuture:     prevFuture,
+		executor:       executor,
+		waitLock:       NewWaitLock(),
+		task:           task,
+		isRunning:      atomic.Value{},
+		propogatePanic: true,
+		propogateError: true,
 	}
 	f.isRunning.Store(false)
 	return f
@@ -199,6 +205,20 @@ func (f *future) OnPanic(onPanic func(interface{})) Future {
 		f.handlePanic(f.panicEntity)
 	}
 	return f
+}
+
+func (f *future) MapError(mappingFn func(error) interface{}) Future {
+	f.propogateError = false
+	return f.OnError(func(err error) {
+		f.acceptResult(mappingFn(err))
+	})
+}
+
+func (f *future) MapPanic(mappingFn func(interface{}) interface{}) Future {
+	f.propogatePanic = false
+	return f.OnPanic(func(recovered interface{}) {
+		f.acceptResult(mappingFn(recovered))
+	})
 }
 
 func (f *future) assembleNextTask(onSuccess func(interface{}) interface{}) func() (interface{}, error) {
@@ -311,30 +331,29 @@ func (f *future) notifyAndRunNext() {
 
 func (f *future) notifyAndPropagatePanicChain(recovered interface{}) {
 	f.openWaitLockAndStopRunning()
-	f.withNextFuture(func(nextFuture *future) {
-		if !nextFuture.isRunning.Load().(bool) {
-			nextFuture.handlePanic(recovered)
-		}
-	})
+	if f.propogatePanic {
+		f.withNextFuture(func(nextFuture *future) {
+			if !nextFuture.isRunning.Load().(bool) {
+				nextFuture.handlePanic(recovered)
+			}
+		})
+	}
 }
 
 func (f *future) notifyAndPropogateErrorChain(err error) {
 	f.openWaitLockAndStopRunning()
-	f.withNextFuture(func(f *future) {
-		if !f.isRunning.Load().(bool) {
-			f.acceptError(err)
-		}
-	})
+	if f.propogateError {
+		f.withNextFuture(func(nextFuture *future) {
+			if !nextFuture.isRunning.Load().(bool) {
+				nextFuture.acceptError(err)
+			}
+		})
+	}
 }
 
 func (f *future) openWaitLockAndStopRunning() {
 	f.waitLock.Open()
 	f.isRunning.Store(false)
-}
-
-func (f *future) waitAndGetResultAndPanicEntity() (interface{}, error, interface{}) {
-	f.Wait()
-	return f.result, f.errEntity, f.panicEntity
 }
 
 // public utility functions

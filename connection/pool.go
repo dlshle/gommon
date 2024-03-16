@@ -1,9 +1,9 @@
 package connection
 
 import (
-	"github.com/dlshle/gommon/logger"
-	"os"
 	"sync"
+
+	"github.com/dlshle/gommon/logging"
 )
 
 const (
@@ -32,34 +32,34 @@ func (e ConnectionPoolError) Code() uint8 {
 }
 
 type connectionPool struct {
-	consumerPool chan IConnection
+	consumerPool chan Connection
 	producerChan chan bool // works kinda like producer sem
 	// getTimeoutInMS time.Duration // max timeout for waiting for an idle conn(create new conn after timeout).
 	// idleTimeoutMs  time.Duration // how long should an idle connection be omitted from the pool
 	numInUse    int
 	numMaxSize  int
 	rwLock      *sync.RWMutex
-	connFactory func() (IConnection, error)
-	logger      *logger.SimpleLogger
+	connFactory func() (Connection, error)
+	logger      logging.Logger
 }
 
 type ConnectionPool interface {
-	Get() (IConnection, error)
-	Return(IConnection) error
+	Get() (Connection, error)
+	Return(Connection) error
 	IsClosed() bool
 	Close()
 }
 
-func NewConnectionPool(loggerPrefix string, factory func() (IConnection, error), initSize int, maxSize int) (ConnectionPool, error) {
+func NewConnectionPool(loggerPrefix string, factory func() (Connection, error), initSize int, maxSize int) (ConnectionPool, error) {
 	pool := &connectionPool{
-		consumerPool: make(chan IConnection, maxSize),
+		consumerPool: make(chan Connection, maxSize),
 		producerChan: make(chan bool, maxSize),
 		// getTimeoutInMS: timeoutInMs,
 		numInUse:    0,
 		numMaxSize:  maxSize,
 		rwLock:      new(sync.RWMutex),
 		connFactory: factory,
-		logger:      logger.New(os.Stdout, loggerPrefix, true),
+		logger:      logging.GlobalLogger.WithPrefix(loggerPrefix),
 	}
 	return pool, pool.init(initSize)
 }
@@ -86,7 +86,7 @@ func (p *connectionPool) withRead(cb func()) {
 	cb()
 }
 
-func (p *connectionPool) createConnection(retry int, lastErr error) (conn IConnection, err error) {
+func (p *connectionPool) createConnection(retry int, lastErr error) (conn Connection, err error) {
 	if retry == 0 {
 		return nil, lastErr
 	}
@@ -111,7 +111,7 @@ func (p *connectionPool) produceConnection() error {
 	return nil
 }
 
-func (p *connectionPool) produceAndGetConnection() (IConnection, error) {
+func (p *connectionPool) produceAndGetConnection() (Connection, error) {
 	err := p.produceConnection()
 	if err != nil {
 		return nil, err
@@ -119,7 +119,7 @@ func (p *connectionPool) produceAndGetConnection() (IConnection, error) {
 	return p.safeGet()
 }
 
-func (p *connectionPool) Return(conn IConnection) (err error) {
+func (p *connectionPool) Return(conn Connection) (err error) {
 	if p.IsClosed() {
 		return NewConnectionPoolError(ConnectionPoolErrPoolClosed, "pool already closed")
 	}
@@ -144,7 +144,7 @@ func (p *connectionPool) Return(conn IConnection) (err error) {
 	return
 }
 
-func (p *connectionPool) safeGet() (conn IConnection, err error) {
+func (p *connectionPool) safeGet() (conn Connection, err error) {
 	for !p.IsClosed() {
 		conn = <-p.consumerPool
 		if conn.IsLive() {
@@ -182,7 +182,7 @@ func (p *connectionPool) doGet() (IConnection, error) {
 }
 */
 
-func (p *connectionPool) Get() (IConnection, error) {
+func (p *connectionPool) Get() (Connection, error) {
 	if p.IsClosed() {
 		return nil, NewConnectionPoolError(ConnectionPoolErrPoolClosed, "pool already closed")
 	}

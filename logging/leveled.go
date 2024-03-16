@@ -9,8 +9,6 @@ import (
 	"runtime"
 	"strconv"
 	"time"
-
-	"github.com/dlshle/gommon/stringz"
 )
 
 type LevelLogger struct {
@@ -62,7 +60,9 @@ func (l *LevelLogger) output(ctx context.Context, level int, data ...string) {
 	} else if len(data) == 1 {
 		builder.WriteString(data[0])
 	} else {
-		builder.WriteString(stringz.ConcatString(data...))
+		for _, piece := range data {
+			builder.WriteString(piece)
+		}
 	}
 	logEntity := newLogEntity(level, l.prefix, l.prepareContext(ctx), time.Now(), builder.String(), l.getFileName())
 	l.writer.Write(logEntity)

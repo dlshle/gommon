@@ -2,18 +2,17 @@ package http
 
 import (
 	"context"
-	"fmt"
 	"net/http"
-	"os"
 	"runtime"
 	"sync"
 	"time"
-	"github.com/dlshle/gommon/logger"
+
+	"github.com/dlshle/gommon/logging"
 )
 
 type HTTPClientBuilder interface {
 	Id(id string) HTTPClientBuilder
-	Logger(logger *logger.SimpleLogger) HTTPClientBuilder
+	Logger(logger logging.Logger) HTTPClientBuilder
 	TimeoutSec(timeout int) HTTPClientBuilder
 	MaxConcurrentRequests(n int) HTTPClientBuilder
 	MaxQueueSize(n int) HTTPClientBuilder
@@ -29,11 +28,11 @@ type httpClientBuilder struct {
 
 func (h *httpClientBuilder) Id(id string) HTTPClientBuilder {
 	h.client.id = id
-	h.client.logger.SetPrefix(id)
+	h.client.logger.Prefix(id)
 	return h
 }
 
-func (h *httpClientBuilder) Logger(logger *logger.SimpleLogger) HTTPClientBuilder {
+func (h *httpClientBuilder) Logger(logger logging.Logger) HTTPClientBuilder {
 	h.client.logger = logger
 	return h
 }
@@ -83,7 +82,7 @@ func NewBuilder() HTTPClientBuilder {
 			cancelFunc: cancelFunc,
 			id:         "http_client",
 			queue:      make(chan TrackableRequest, 128),
-			logger:     logger.New(os.Stdout, fmt.Sprintf("http_client"), false),
+			logger:     logging.GlobalLogger.WithPrefix("http_client"),
 			status:     PoolStatusIdle,
 			rwMutex:    new(sync.RWMutex),
 			workerSize: 5,

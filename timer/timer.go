@@ -6,6 +6,10 @@ import (
 )
 
 type Timer interface {
+	Start() bool
+  Repeat() bool
+  Wait()
+  Stop() bool
 }
 
 type timer struct {
@@ -16,7 +20,7 @@ type timer struct {
 }
 
 // this is a more reliable timer
-func New(duration time.Duration, fn func()) *timer {
+func New(duration time.Duration, fn func()) Timer {
 	var wg sync.WaitGroup
 	return &timer{
 		duration: duration,

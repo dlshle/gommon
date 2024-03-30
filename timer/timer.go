@@ -1,31 +1,32 @@
 package timer
 
 import (
-	"sync"
 	"time"
+
+	"github.com/dlshle/gommon/async"
 )
 
 type Timer interface {
 	Start() bool
-  Repeat() bool
-  Wait()
-  Stop() bool
+	Repeat() bool
+	Reset() bool
+	Wait()
+	Stop() bool
 }
 
 type timer struct {
 	fn       func()
 	duration time.Duration
 	timer    *time.Timer
-	wg       sync.WaitGroup
+	b        async.WaitLock
 }
 
 // this is a more reliable timer
 func New(duration time.Duration, fn func()) Timer {
-	var wg sync.WaitGroup
 	return &timer{
 		duration: duration,
 		fn:       fn,
-		wg:       wg,
+		b:        *async.NewOpenWaitLock(),
 	}
 }
 
@@ -34,7 +35,7 @@ func (t *timer) Start() bool {
 		// already started
 		return false
 	}
-	t.wg.Add(1)
+	t.b.Lock()
 	t.timer = time.AfterFunc(t.duration, func() {
 		t.run(false)
 	})
@@ -46,7 +47,7 @@ func (t *timer) Repeat() bool {
 		// already started
 		return false
 	}
-	t.wg.Add(1)
+	t.b.Lock()
 	t.timer = time.AfterFunc(t.duration, func() {
 		t.run(true)
 	})
@@ -57,14 +58,14 @@ func (t *timer) Wait() {
 	if t.timer == nil {
 		return
 	}
-	t.wg.Wait()
+	t.b.Wait()
 }
 
 func (t *timer) run(repeat bool) {
 	t.fn()
-	t.wg.Done()
+	t.b.Open()
 	if repeat {
-		t.wg.Add(1)
+		t.b.Lock()
 		t.timer.Reset(t.duration)
 	}
 }
@@ -76,7 +77,7 @@ func (t *timer) Stop() bool {
 	stopped := t.timer.Stop()
 	if stopped {
 		t.timer = nil
-		t.wg.Done()
+		t.b.Open()
 		return true
 	}
 	return false

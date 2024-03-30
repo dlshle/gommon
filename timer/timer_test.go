@@ -44,23 +44,30 @@ func TestTimer(t *testing.T) {
 		})
 		t.Run("stop should stop a timer", func(t *testing.T) {
 			start := time.Now()
+			t.Logf("start: %v", start)
 			var atomicInt atomic.Int32
 			atomicInt.Store(0)
-			tm := New(time.Nanosecond*500, func() {
+			tm := New(time.Second, func() {
 				atomicInt.Add(1)
+				t.Logf("%v ran on %v", time.Now(), atomicInt.Load())
 			})
 			tm.Repeat()
+			// wait should wait for at least 500 nano secs
 			tm.Wait()
-			if time.Since(start) < time.Nanosecond*500 {
-				t.Fatalf("time elapse should be at least 2 seconds")
+			if time.Since(start) < time.Second {
+				t.Fatalf("time elapse should be at least 1 second")
 			}
-			if time.Since(start) > time.Nanosecond*900 {
-				t.Fatalf("time elapse should be at least 2 seconds")
+			if time.Since(start) > time.Second*4/3 {
+				t.Fatalf("time elapse should be no longer than 2/3 seconds")
 			}
-			time.Sleep(time.Second + time.Nanosecond*200)
+			if atomicInt.Load() != 1 {
+				t.Fatalf("callback is ran for more than once")
+			}
+			time.Sleep(2*time.Second + time.Millisecond*200)
+			t.Logf("what now %v", time.Now())
 			tm.Stop()
-			time.Sleep(time.Nanosecond * 1000)
-			if atomicInt.Load() != int32(time.Second/(500*time.Nanosecond)) {
+			time.Sleep(time.Millisecond * 100)
+			if atomicInt.Load() != 3 {
 				t.Fatalf("fn isn't run with correct frequencie")
 			}
 		})

@@ -45,6 +45,12 @@ func NewWaitLock() *WaitLock {
 	return b
 }
 
+func NewOpenWaitLock() *WaitLock {
+	wl := NewWaitLock()
+	wl.isOpen.Store(true)
+	return wl
+}
+
 type StatefulBarrier struct {
 	b     *WaitLock
 	state atomic.Value

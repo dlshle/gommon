@@ -413,6 +413,18 @@ func WhenAllCompleted(futures ...Future) Future {
 	return whenAllCompleted(futures)
 }
 
+func ImmediateFuture(val interface{}) Future {
+	return From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+		ra(val)
+	})
+}
+
+func ImmediateErrorFuture(err error) Future {
+	return From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+		ea(err)
+	})
+}
+
 func whenAllCompleted(futures []Future) *future {
 	return newFuture(func() (interface{}, error) {
 		for _, f := range futures {

@@ -65,7 +65,7 @@ type future struct {
 	result         interface{}
 	panicEntity    interface{}
 	errEntity      error
-	isRunning      atomic.Value
+	isRunning      *atomic.Value
 	prevFuture     *future
 	nextFuture     *future
 	onPanic        func(interface{})
@@ -94,12 +94,14 @@ func newComputedWithErrorFuture(task ComputableAsyncTaskWithError, executor Exec
 }
 
 func newFuture(task ComputableAsyncTaskWithError, executor Executor, prevFuture *future) *future {
+	isRunning := new(atomic.Value)
+	isRunning.Store(false)
 	f := &future{
 		prevFuture:     prevFuture,
 		executor:       executor,
 		waitLock:       NewWaitLock(),
 		task:           task,
-		isRunning:      atomic.Value{},
+		isRunning:      isRunning,
 		propogatePanic: true,
 		propogateError: true,
 	}
@@ -231,7 +233,7 @@ func (f *future) assembleNextTask(onSuccess func(interface{}) interface{}) func(
 func (f *future) then(nextFuture *future) Future {
 	f.nextFuture = nextFuture
 	// if current future isn't started, start it
-	if !f.isRunning.Load().(bool) {
+	if !f.isRunning.Load().(bool) && !f.IsDone() {
 		f.start()
 		return f.nextFuture
 	}

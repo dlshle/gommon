@@ -10,6 +10,8 @@ type FutureGetter interface {
 	Wait()
 	Get() (interface{}, error)
 	MustGet() interface{} // panic on error
+	WaitWithTimeout(duration time.Duration) error
+	GetWithTimeout(duration time.Duration) (interface{}, error)
 }
 
 type directExecutor uint8
@@ -44,8 +46,6 @@ type Future interface {
 	FutureGetter
 	// try to cancel the task before its execution
 	Cancel()
-	WaitWithTimeout(duration time.Duration) error
-	GetWithTimeout(duration time.Duration) (interface{}, error)
 	IsDone() bool
 	Then(onComplete func(interface{}) interface{}) Future
 	ThenWithExecutor(onComplete func(interface{}) interface{}, executor Executor) Future

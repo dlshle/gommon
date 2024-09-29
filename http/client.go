@@ -233,12 +233,12 @@ func (c *httpClient) request(request *http.Request) TrackableRequest {
 	tRequest := newTrackableRequest(request)
 	tRequest.setStatus(RequestStatusWaiting)
 	if c.Status() != PoolStatusRunning {
-		tRequest.(*trackableRequest).response.resolve(invalidResponse("client is closed", -1))
+		tRequest.response.resolve(invalidResponse("client is closed", -1))
 		atomic.AddInt32(&c.numExceeded, 1)
 		return tRequest
 	}
 	if c.isQueueSizeExceeded() {
-		c.executeRequest(tRequest.(*trackableRequest))
+		c.executeRequest(tRequest)
 		return tRequest
 	}
 	c.queue <- tRequest
@@ -249,7 +249,7 @@ func (c *httpClient) request(request *http.Request) TrackableRequest {
 func (c *httpClient) DoRequest(request *http.Request) *Response {
 	tRequest := newTrackableRequest(request)
 	tRequest.setStatus(RequestStatusWaiting)
-	c.executeRequest(tRequest.(*trackableRequest))
+	c.executeRequest(tRequest)
 	return tRequest.Response()
 }
 

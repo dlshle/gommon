@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"io"
 	"net/http"
 	urlpkg "net/url"
@@ -81,10 +82,15 @@ func BuildBodyFrom(body string) io.Reader {
 // HTTP Request
 type requestBuilder struct {
 	request *http.Request
+	timeout time.Duration
 }
 
 type RequestBuilder interface {
 	Build() *http.Request
+	Context(ctc context.Context) RequestBuilder
+	// this will set timeout context when the request is handled(not built)
+	// timeout set by this method will not be applied to the net/http http client
+	Timeout(timeout time.Duration) RequestBuilder
 	Method(method string) RequestBuilder
 	URL(url string) RequestBuilder
 	Header(header http.Header) RequestBuilder
@@ -94,18 +100,34 @@ type RequestBuilder interface {
 
 func NewRequestBuilder() RequestBuilder {
 	req := requestPool.Get().(*http.Request)
-	return &requestBuilder{req}
+	return &requestBuilder{
+		request: req,
+		timeout: time.Duration(0),
+	}
 }
 
 func (b *requestBuilder) Build() *http.Request {
 	if b.request.Method == "" {
 		b.request.Method = "GET"
 	}
+	if b.timeout > 0 {
+		return b.request.WithContext(context.WithValue(b.request.Context(), "timeout", b.timeout))
+	}
 	return b.request
 }
 
+func (b *requestBuilder) Timeout(timeout time.Duration) RequestBuilder {
+	b.timeout = timeout
+	return b
+}
+
+func (b *requestBuilder) Context(ctx context.Context) RequestBuilder {
+	b.request = b.request.WithContext(ctx)
+	return b
+}
+
 func (b *requestBuilder) Method(method string) RequestBuilder {
-	b.request.Method = method
+	b.request.Method = strings.ToUpper(method)
 	return b
 }
 
@@ -219,10 +241,11 @@ func cancelledResponse() *Response {
 }
 
 type trackableRequest struct {
-	id       string
-	status   int32
-	request  *http.Request
-	response *awaitableResponse
+	id         string
+	cancelFunc func()
+	status     int32
+	request    *http.Request
+	response   *awaitableResponse
 }
 
 type TrackableRequest interface {
@@ -235,9 +258,19 @@ type TrackableRequest interface {
 	setStatus(status int32)
 }
 
-func newTrackableRequest(request *http.Request) TrackableRequest {
+func newTrackableRequest(request *http.Request) *trackableRequest {
+	var (
+		ctx        context.Context
+		cancelFunc func()
+	)
+	if timeoutVal := request.Context().Value("timeout"); timeoutVal != nil {
+		ctx, cancelFunc = context.WithTimeout(request.Context(), timeoutVal.(time.Duration))
+	} else {
+		ctx, cancelFunc = context.WithCancel(request.Context())
+	}
+	request = request.WithContext(ctx)
 	id := strconv.FormatInt(randomGenerator.Int63n(time.Now().Unix()), 16)
-	return &trackableRequest{id, RequestStatusIdle, request, newAwaitableResponse()}
+	return &trackableRequest{id, cancelFunc, RequestStatusIdle, request, newAwaitableResponse()}
 }
 
 func (tr *trackableRequest) ID() string {
@@ -253,6 +286,8 @@ func (tr *trackableRequest) setStatus(status int32) {
 }
 
 func (tr *trackableRequest) complete() {
+	// invoke cancel func to relase timeout context timer
+	tr.cancelFunc()
 	tr.setStatus(RequestStatusDone)
 	requestPool.Put(tr.request)
 }
@@ -272,7 +307,8 @@ func (tr *trackableRequest) Update(request *http.Request) error {
 
 func (tr *trackableRequest) Cancel() error {
 	status := tr.Status()
-	if status <= RequestStatusWaiting {
+	if status < RequestStatusDone {
+		tr.cancelFunc()
 		tr.status = RequestStatusCancelled
 		tr.response.resolve(cancelledResponse())
 		return nil

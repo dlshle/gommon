@@ -73,8 +73,6 @@ type future struct {
 	nextFutures    []*future
 	onPanic        func(interface{})
 	propogatePanic bool
-	onError        func(error)
-	propogateError bool
 }
 
 func newAsyncTaskFuture(task AsyncTask, executor Executor) *future {
@@ -106,7 +104,6 @@ func newFuture(task ComputableAsyncTaskWithError, executor Executor, prevFuture 
 		task:           task,
 		isRunning:      isRunning,
 		propogatePanic: true,
-		propogateError: true,
 	}
 	f.isRunning.Store(false)
 	return f
@@ -216,13 +213,13 @@ func (f *future) Then(onSuccess func(interface{}) (interface{}, error)) Future {
 }
 
 func (f *future) OnError(onError func(error)) Future {
-	f.onError = onError
-	if f.IsDone() && f.errEntity != nil {
-		f.handleError(f.errEntity)
-		return f
-	}
-	f.start()
-	return f
+	return f.then(newFuture(func() (interface{}, error) {
+		res, err := f.Get()
+		if err != nil {
+			onError(err)
+		}
+		return res, err
+	}, DirectExecutor, f))
 }
 
 func (f *future) OnPanic(onPanic func(interface{})) Future {
@@ -234,10 +231,13 @@ func (f *future) OnPanic(onPanic func(interface{})) Future {
 }
 
 func (f *future) MapError(mappingFn func(error) interface{}) Future {
-	f.propogateError = false
-	return f.OnError(func(err error) {
-		f.acceptResult(mappingFn(err))
-	})
+	return f.then(newFuture(func() (interface{}, error) {
+		res, err := f.Get()
+		if err != nil {
+			return mappingFn(err), nil
+		}
+		return res, err
+	}, DirectExecutor, f))
 }
 
 func (f *future) MapPanic(mappingFn func(interface{}) interface{}) Future {
@@ -258,7 +258,7 @@ func (f *future) assembleNextTask(onSuccess func(interface{}) (interface{}, erro
 }
 
 func (f *future) then(nextFuture *future) Future {
-	f.nextFutures = append(f.nextFutures, nextFuture)
+	f.appendFuture(nextFuture)
 	nextFuture.prevFuture = f
 	// if current future isn't started, start it
 	if !f.isRunning.Load().(bool) && !f.IsDone() {
@@ -269,12 +269,14 @@ func (f *future) then(nextFuture *future) Future {
 		if f.panicEntity != nil {
 			f.notifyAndPropagatePanicChain(f.panicEntity)
 		} else if f.errEntity != nil {
-			f.notifyAndPropogateErrorChain(f.errEntity)
-		} else {
 			f.notifyAndRunNext()
 		}
 	}
 	return nextFuture
+}
+
+func (f *future) appendFuture(nextFuture *future) {
+	f.nextFutures = append(f.nextFutures, nextFuture)
 }
 
 func (f *future) run() *future {
@@ -315,7 +317,7 @@ func (f *future) acceptError(err error) {
 		return
 	}
 	f.errEntity = err
-	f.handleError(err)
+	f.notifyAndRunNext()
 }
 
 func (f *future) acceptPanic(recovered interface{}) {
@@ -331,16 +333,6 @@ func (f *future) handlePanic(recovered interface{}) {
 		f.onPanic(recovered)
 	}
 	f.notifyAndPropagatePanicChain(recovered)
-}
-
-func (f *future) handleError(err error) {
-	if err == nil {
-		return
-	}
-	if f.onError != nil {
-		f.onError(err)
-	}
-	f.notifyAndPropogateErrorChain(err)
 }
 
 func (f *future) withNextFutures(cb func(f *future)) {
@@ -367,17 +359,6 @@ func (f *future) notifyAndPropagatePanicChain(recovered interface{}) {
 		f.withNextFutures(func(nextFuture *future) {
 			if !nextFuture.isRunning.Load().(bool) {
 				nextFuture.handlePanic(recovered)
-			}
-		})
-	}
-}
-
-func (f *future) notifyAndPropogateErrorChain(err error) {
-	f.openWaitLockAndStopRunning()
-	if f.propogateError {
-		f.withNextFutures(func(nextFuture *future) {
-			if !nextFuture.isRunning.Load().(bool) {
-				nextFuture.acceptError(err)
 			}
 		})
 	}
@@ -422,6 +403,8 @@ func newPromisedFuture(resolver func(ResultAcceptor, ErrorAcceptor), executor Ex
 type ResultAcceptor = func(interface{})
 type ErrorAcceptor = func(error)
 
+// From creates a new Future that settles through a callback.
+// NOTE: do not run resolve with the direct executor(i.e. run on a different goroutine)
 func From(resolver func(ResultAcceptor, ErrorAcceptor)) Future {
 	return newPromisedFuture(resolver, DirectExecutor, nil)
 }

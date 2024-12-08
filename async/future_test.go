@@ -145,7 +145,8 @@ func TestFuture(t *testing.T) {
 				test_utils.AssertEquals(err.Error(), "mock error")
 				return "mapped:" + err.Error()
 			}).Get()
-			test_utils.AssertEquals(err.Error(), "mock error")
+			// since error is mapped, we expect result from mappedErr
+			test_utils.AssertNil(err)
 			casted, ok := mappedErr.(string)
 			test_utils.AssertTrue(ok)
 			test_utils.AssertEquals(casted, "mapped:mock error")
@@ -169,7 +170,7 @@ func TestFuture(t *testing.T) {
 			test_utils.AssertNil(err)
 			return true
 		}),
-		test_utils.NewTestCase("pani catching propogation with mapping", "", func() bool {
+		test_utils.NewTestCase("panic catching propogation with mapping", "", func() bool {
 			mappedErr, err := newAsyncTaskFuture(func() {
 				panic(1)
 			}, NewGoRoutineExecutor).Then(func(i interface{}) (interface{}, error) {
@@ -197,12 +198,14 @@ func TestFuture(t *testing.T) {
 				ra(1)
 			}).ThenAsync(func(i interface{}) (Future, error) {
 				return From(func(ra ResultAcceptor, ea ErrorAcceptor) {
-					num, ok := i.(int)
-					if !ok {
-						ea(errors.Error("error"))
-						return
-					}
-					ra(num + 1)
+					go func() {
+						num, ok := i.(int)
+						if !ok {
+							ea(errors.Error("error"))
+							return
+						}
+						ra(num + 1)
+					}()
 				}), nil
 			}).Then(func(i interface{}) (interface{}, error) {
 				if num, ok := i.(int); !ok || num != 2 {
@@ -214,10 +217,10 @@ func TestFuture(t *testing.T) {
 			return true
 		}),
 		test_utils.NewTestCase("multiple chainned futures", "", func() bool {
-			f0_1 := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+			f0_1 := FromWithExecutor(func(ra ResultAcceptor, ea ErrorAcceptor) {
 				time.Sleep(1 * time.Second)
 				ra(1)
-			})
+			}, NewGoRoutineExecutor)
 			f1_2 := f0_1.Then(func(i interface{}) (interface{}, error) {
 				return i.(int) + 1, nil
 			})

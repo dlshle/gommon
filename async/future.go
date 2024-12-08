@@ -198,6 +198,7 @@ func (f *future) ThenAsyncWithExecutor(onComplete func(interface{}) (Future, err
 			rej(err)
 			return
 		}
+		// TODO need to investigate why promise style doesn't work
 		nextFuture.Then(func(nextInput interface{}) (interface{}, error) {
 			res(nextInput)
 			return nil, nil
@@ -268,7 +269,7 @@ func (f *future) then(nextFuture *future) Future {
 	if f.IsDone() {
 		if f.panicEntity != nil {
 			f.notifyAndPropagatePanicChain(f.panicEntity)
-		} else if f.errEntity != nil {
+		} else {
 			f.notifyAndRunNext()
 		}
 	}

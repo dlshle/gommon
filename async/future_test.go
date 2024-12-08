@@ -217,10 +217,10 @@ func TestFuture(t *testing.T) {
 			return true
 		}),
 		test_utils.NewTestCase("multiple chainned futures", "", func() bool {
-			f0_1 := FromWithExecutor(func(ra ResultAcceptor, ea ErrorAcceptor) {
+			f0_1 := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
 				time.Sleep(1 * time.Second)
 				ra(1)
-			}, NewGoRoutineExecutor)
+			})
 			f1_2 := f0_1.Then(func(i interface{}) (interface{}, error) {
 				return i.(int) + 1, nil
 			})

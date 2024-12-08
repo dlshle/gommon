@@ -1,9 +1,10 @@
 package async
 
 import (
-	"fmt"
 	"sync/atomic"
 	"time"
+
+	"github.com/dlshle/gommon/errors"
 )
 
 type FutureGetter interface {
@@ -39,7 +40,7 @@ const (
 var canceledError error
 
 func init() {
-	canceledError = fmt.Errorf(CanceledMsg)
+	canceledError = errors.Error(CanceledMsg)
 }
 
 type Future interface {
@@ -47,8 +48,10 @@ type Future interface {
 	// try to cancel the task before its execution
 	Cancel()
 	IsDone() bool
-	Then(onComplete func(interface{}) interface{}) Future
-	ThenWithExecutor(onComplete func(interface{}) interface{}, executor Executor) Future
+	Then(onComplete func(interface{}) (interface{}, error)) Future
+	ThenAsync(onComplete func(interface{}) (Future, error)) Future
+	ThenAsyncWithExecutor(onComplete func(interface{}) (Future, error), executor Executor) Future
+	ThenWithExecutor(onComplete func(interface{}) (interface{}, error), executor Executor) Future
 	ThenWithFuture(future Future) Future
 	OnPanic(onPanic func(interface{})) Future
 	OnError(onError func(error)) Future
@@ -67,7 +70,7 @@ type future struct {
 	errEntity      error
 	isRunning      *atomic.Value
 	prevFuture     *future
-	nextFuture     *future
+	nextFutures    []*future
 	onPanic        func(interface{})
 	propogatePanic bool
 	onError        func(error)
@@ -109,7 +112,7 @@ func newFuture(task ComputableAsyncTaskWithError, executor Executor, prevFuture 
 	return f
 }
 
-func (f *future) start() FutureGetter {
+func (f *future) start() *future {
 	if f.prevFuture != nil {
 		return f.prevFuture.start()
 	}
@@ -119,7 +122,7 @@ func (f *future) start() FutureGetter {
 func (f *future) Cancel() {
 	if f.task == nil || f.isRunning.Load().(bool) || f.waitLock.IsOpen() {
 		// try to cancel later futures
-		f.withNextFuture(func(nextFuture *future) {
+		f.withNextFutures(func(nextFuture *future) {
 			nextFuture.Cancel()
 		})
 		return
@@ -181,12 +184,33 @@ func (f *future) ThenWithFuture(future Future) Future {
 	return f.then(f)
 }
 
-func (f *future) ThenWithExecutor(onSuccess func(interface{}) interface{}, executor Executor) Future {
-	nextTask := f.assembleNextTask(onSuccess)
+func (f *future) ThenWithExecutor(onComplete func(interface{}) (interface{}, error), executor Executor) Future {
+	nextTask := f.assembleNextTask(onComplete)
 	return f.then(newFuture(nextTask, executor, f))
 }
 
-func (f *future) Then(onSuccess func(interface{}) interface{}) Future {
+func (f *future) ThenAsync(onComplete func(interface{}) (Future, error)) Future {
+	return f.ThenAsyncWithExecutor(onComplete, DirectExecutor)
+}
+
+func (f *future) ThenAsyncWithExecutor(onComplete func(interface{}) (Future, error), executor Executor) Future {
+	return f.then(newPromisedFuture(func(res ResultAcceptor, rej ErrorAcceptor) {
+		input, _ := f.Get()
+		nextFuture, err := onComplete(input)
+		if err != nil {
+			rej(err)
+			return
+		}
+		nextFuture.Then(func(nextInput interface{}) (interface{}, error) {
+			res(nextInput)
+			return nil, nil
+		}).OnError(func(err error) {
+			rej(err)
+		})
+	}, executor, f))
+}
+
+func (f *future) Then(onSuccess func(interface{}) (interface{}, error)) Future {
 	nextTask := f.assembleNextTask(onSuccess)
 	return f.then(newFuture(nextTask, f.executor, f))
 }
@@ -223,19 +247,23 @@ func (f *future) MapPanic(mappingFn func(interface{}) interface{}) Future {
 	})
 }
 
-func (f *future) assembleNextTask(onSuccess func(interface{}) interface{}) func() (interface{}, error) {
+func (f *future) assembleNextTask(onSuccess func(interface{}) (interface{}, error)) func() (interface{}, error) {
 	return func() (interface{}, error) {
-		f.Wait()
-		return onSuccess(f.result), nil
+		res, err := f.Get()
+		if err != nil {
+			return nil, err
+		}
+		return onSuccess(res)
 	}
 }
 
 func (f *future) then(nextFuture *future) Future {
-	f.nextFuture = nextFuture
+	f.nextFutures = append(f.nextFutures, nextFuture)
+	nextFuture.prevFuture = f
 	// if current future isn't started, start it
 	if !f.isRunning.Load().(bool) && !f.IsDone() {
 		f.start()
-		return f.nextFuture
+		return nextFuture
 	}
 	if f.IsDone() {
 		if f.panicEntity != nil {
@@ -246,7 +274,7 @@ func (f *future) then(nextFuture *future) Future {
 			f.notifyAndRunNext()
 		}
 	}
-	return f.nextFuture
+	return nextFuture
 }
 
 func (f *future) run() *future {
@@ -275,7 +303,7 @@ func (f *future) execute() {
 }
 
 func (f *future) acceptResult(result interface{}) {
-	if result == nil {
+	if result == nil || f.result != nil {
 		return
 	}
 	f.result = result
@@ -283,7 +311,7 @@ func (f *future) acceptResult(result interface{}) {
 }
 
 func (f *future) acceptError(err error) {
-	if err == nil {
+	if err == nil || f.errEntity != nil {
 		return
 	}
 	f.errEntity = err
@@ -291,7 +319,7 @@ func (f *future) acceptError(err error) {
 }
 
 func (f *future) acceptPanic(recovered interface{}) {
-	if recovered == nil {
+	if recovered == nil || f.panicEntity != nil {
 		return
 	}
 	f.panicEntity = recovered
@@ -315,16 +343,18 @@ func (f *future) handleError(err error) {
 	f.notifyAndPropogateErrorChain(err)
 }
 
-func (f *future) withNextFuture(cb func(f *future)) {
-	if f.nextFuture == nil {
+func (f *future) withNextFutures(cb func(f *future)) {
+	if len(f.nextFutures) == 0 {
 		return
 	}
-	cb(f.nextFuture)
+	for _, nf := range f.nextFutures {
+		cb(nf)
+	}
 }
 
 func (f *future) notifyAndRunNext() {
 	f.openWaitLockAndStopRunning()
-	f.withNextFuture(func(nextFuture *future) {
+	f.withNextFutures(func(nextFuture *future) {
 		if !nextFuture.isRunning.Load().(bool) {
 			nextFuture.run()
 		}
@@ -334,7 +364,7 @@ func (f *future) notifyAndRunNext() {
 func (f *future) notifyAndPropagatePanicChain(recovered interface{}) {
 	f.openWaitLockAndStopRunning()
 	if f.propogatePanic {
-		f.withNextFuture(func(nextFuture *future) {
+		f.withNextFutures(func(nextFuture *future) {
 			if !nextFuture.isRunning.Load().(bool) {
 				nextFuture.handlePanic(recovered)
 			}
@@ -345,7 +375,7 @@ func (f *future) notifyAndPropagatePanicChain(recovered interface{}) {
 func (f *future) notifyAndPropogateErrorChain(err error) {
 	f.openWaitLockAndStopRunning()
 	if f.propogateError {
-		f.withNextFuture(func(nextFuture *future) {
+		f.withNextFutures(func(nextFuture *future) {
 			if !nextFuture.isRunning.Load().(bool) {
 				nextFuture.acceptError(err)
 			}
@@ -433,5 +463,20 @@ func whenAllCompleted(futures []Future) *future {
 			f.Wait()
 		}
 		return nil, nil
+	}, DirectExecutor, nil)
+}
+
+func whenAllSucceeded(futures []Future) *future {
+	return newPromisedFuture(func(res ResultAcceptor, rej ErrorAcceptor) {
+		for _, f := range futures {
+			f.ThenWithFuture(newPromisedFuture(func(ra ResultAcceptor, ea ErrorAcceptor) {
+				r, err := f.Get()
+				if err != nil {
+					ea(err)
+					return
+				}
+				res(r)
+			}, DirectExecutor, nil))
+		}
 	}, DirectExecutor, nil)
 }

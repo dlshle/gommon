@@ -11,8 +11,8 @@ import (
 func TestFuture(t *testing.T) {
 	test_utils.NewTestGroup("Future", "future library test").Cases([]*test_utils.Assertion{
 		test_utils.NewTestCase("direct executor chain", "", func() bool {
-			flipper := func(input interface{}) interface{} {
-				return !input.(bool)
+			flipper := func(input interface{}) (interface{}, error) {
+				return !input.(bool), nil
 			}
 			return NewComputedFuture(func() interface{} {
 				return true
@@ -22,10 +22,10 @@ func TestFuture(t *testing.T) {
 			var errMsg string
 			NewComputedFuture(func() interface{} {
 				panic("err")
-			}, NewGoRoutineExecutor).Then(func(_ interface{}) interface{} {
-				return nil
-			}).Then(func(_ interface{}) interface{} {
-				return nil
+			}, NewGoRoutineExecutor).Then(func(_ interface{}) (interface{}, error) {
+				return nil, nil
+			}).Then(func(_ interface{}) (interface{}, error) {
+				return nil, nil
 			}).OnPanic(func(panicEntity interface{}) {
 				errMsg = panicEntity.(string)
 			}).Wait()
@@ -34,9 +34,9 @@ func TestFuture(t *testing.T) {
 		test_utils.NewTestCase("async pool executor single chain with no panic", "", func() bool {
 			counter := 0
 			pool := NewAsyncPool("test", 128, 16)
-			incrAndReturnCounter := func(prev interface{}) interface{} {
+			incrAndReturnCounter := func(prev interface{}) (interface{}, error) {
 				counter = prev.(int) + 1
-				return counter
+				return counter, nil
 			}
 			NewComputedFuture(func() interface{} {
 				counter++
@@ -49,9 +49,9 @@ func TestFuture(t *testing.T) {
 			counter := 0
 			errCounter := 0
 			pool := NewAsyncPool("test", 128, 16)
-			incrAndReturnCounter := func(prev interface{}) interface{} {
+			incrAndReturnCounter := func(prev interface{}) (interface{}, error) {
 				counter = prev.(int) + 1
-				return counter
+				return counter, nil
 			}
 			incrAndReturnErrCounter := func(interface{}) {
 				errCounter++
@@ -59,7 +59,7 @@ func TestFuture(t *testing.T) {
 			NewComputedFuture(func() interface{} {
 				counter++
 				return counter
-			}, pool).Then(incrAndReturnCounter).Then(func(interface{}) interface{} {
+			}, pool).Then(incrAndReturnCounter).Then(func(interface{}) (interface{}, error) {
 				panic("err")
 			}).OnPanic(incrAndReturnErrCounter).Then(incrAndReturnCounter).OnPanic(incrAndReturnErrCounter).Then(incrAndReturnCounter).Wait()
 			t.Logf("started worker: %d", pool.NumStartedWorkers())
@@ -68,9 +68,9 @@ func TestFuture(t *testing.T) {
 		test_utils.NewTestCase("async pool executor single chain with multiple panic and cancellation", "", func() bool {
 			counter := 0
 			pool := NewAsyncPool("test", 128, 16)
-			incrAndReturnCounter := func(prev interface{}) interface{} {
+			incrAndReturnCounter := func(prev interface{}) (interface{}, error) {
 				counter = prev.(int) + 1
-				return counter
+				return counter, nil
 			}
 			f := NewComputedFuture(func() interface{} {
 				time.Sleep(time.Second * 3)
@@ -92,20 +92,20 @@ func TestFuture(t *testing.T) {
 					time.Sleep(1 * time.Second)
 					ra(1)
 				}()
-			}).Then(func(i interface{}) interface{} {
+			}).Then(func(i interface{}) (interface{}, error) {
 				if i.(int) != 1 {
 					panic("error return from prev future! expecting 1")
 				}
 				time.Sleep(1 * time.Second)
-				return 2
-			}).Then(func(i interface{}) interface{} {
+				return 2, nil
+			}).Then(func(i interface{}) (interface{}, error) {
 				if i.(int) != 2 {
 					panic("error return from prev future! expecting 2")
 				}
-				return time.Since(start) > time.Second*2
-			}).ThenWithExecutor(func(i interface{}) interface{} {
+				return time.Since(start) > time.Second*2, nil
+			}).ThenWithExecutor(func(i interface{}) (interface{}, error) {
 				test_utils.AssertTrue(i.(bool))
-				return true
+				return true, nil
 			}, NewAsyncPool("", 128, 64)).MustGet().(bool)
 		}).WithMultiple(10, true).(*test_utils.Assertion),
 		test_utils.NewTestCase("error catching propogation", "", func() bool {
@@ -114,12 +114,12 @@ func TestFuture(t *testing.T) {
 					time.Sleep(1 * time.Second)
 					ea(errors.Error("mock error"))
 				}()
-			}).Then(func(i interface{}) interface{} {
+			}).Then(func(i interface{}) (interface{}, error) {
 				test_utils.AssertEquals("failed", "first")
-				return nil
-			}).Then(func(i interface{}) interface{} {
+				return nil, nil
+			}).Then(func(i interface{}) (interface{}, error) {
 				test_utils.AssertEquals("failed", "second")
-				return nil
+				return nil, nil
 			}).OnError(func(err error) {
 				test_utils.AssertEquals(err.Error(), "mock error")
 			}).Get()
@@ -133,34 +133,33 @@ func TestFuture(t *testing.T) {
 					time.Sleep(1 * time.Second)
 					ea(errors.Error("mock error"))
 				}()
-			}).Then(func(i interface{}) interface{} {
+			}).Then(func(i interface{}) (interface{}, error) {
 				test_utils.AssertEquals("failed", "first")
-				return nil
-			}).Then(func(i interface{}) interface{} {
+				return nil, nil
+			}).Then(func(i interface{}) (interface{}, error) {
 				test_utils.AssertEquals("failed", "second")
-				return nil
+				return nil, nil
 			}).OnError(func(err error) {
-				// error handler should process with this fn iff no MapError is invoked
-				test_utils.AssertEquals("failed", "shuoldn't come here since error is mapped")
+				test_utils.AssertNonNil(err)
 			}).MapError(func(err error) interface{} {
 				test_utils.AssertEquals(err.Error(), "mock error")
-				return err
+				return "mapped:" + err.Error()
 			}).Get()
 			test_utils.AssertEquals(err.Error(), "mock error")
-			casted, ok := mappedErr.(error)
+			casted, ok := mappedErr.(string)
 			test_utils.AssertTrue(ok)
-			test_utils.AssertEquals(casted.Error(), "mock error")
+			test_utils.AssertEquals(casted, "mapped:mock error")
 			return true
 		}),
 		test_utils.NewTestCase("panic catching propogation", "", func() bool {
 			mappedErr, err := newAsyncTaskFuture(func() {
 				panic(1)
-			}, NewGoRoutineExecutor).Then(func(i interface{}) interface{} {
+			}, NewGoRoutineExecutor).Then(func(i interface{}) (interface{}, error) {
 				test_utils.AssertEquals("failed", "first")
-				return nil
-			}).Then(func(i interface{}) interface{} {
+				return nil, nil
+			}).Then(func(i interface{}) (interface{}, error) {
 				test_utils.AssertEquals("failed", "second")
-				return nil
+				return nil, nil
 			}).OnPanic(func(err interface{}) {
 				casted, ok := err.(int)
 				test_utils.AssertTrue(ok)
@@ -173,14 +172,14 @@ func TestFuture(t *testing.T) {
 		test_utils.NewTestCase("pani catching propogation with mapping", "", func() bool {
 			mappedErr, err := newAsyncTaskFuture(func() {
 				panic(1)
-			}, NewGoRoutineExecutor).Then(func(i interface{}) interface{} {
+			}, NewGoRoutineExecutor).Then(func(i interface{}) (interface{}, error) {
 				test_utils.AssertEquals("failed", "first")
-				return nil
-			}).Then(func(i interface{}) interface{} {
+				return nil, nil
+			}).Then(func(i interface{}) (interface{}, error) {
 				test_utils.AssertEquals("failed", "second")
-				return nil
+				return nil, nil
 			}).OnError(func(err error) {
-				test_utils.AssertEquals("failed", "shouldn't come here")
+				test_utils.AssertNonNil(err)
 			}).MapPanic(func(err interface{}) interface{} {
 				casted, ok := err.(int)
 				test_utils.AssertTrue(ok)
@@ -191,6 +190,59 @@ func TestFuture(t *testing.T) {
 			casted, ok := mappedErr.(int)
 			test_utils.AssertTrue(ok)
 			test_utils.AssertEquals(casted, 2)
+			return true
+		}),
+		test_utils.NewTestCase("promise chain", "", func() bool {
+			res := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+				ra(1)
+			}).ThenAsync(func(i interface{}) (Future, error) {
+				return From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+					num, ok := i.(int)
+					if !ok {
+						ea(errors.Error("error"))
+						return
+					}
+					ra(num + 1)
+				}), nil
+			}).Then(func(i interface{}) (interface{}, error) {
+				if num, ok := i.(int); !ok || num != 2 {
+					return false, nil
+				}
+				return true, nil
+			}).MustGet().(bool)
+			test_utils.AssertTrue(res)
+			return true
+		}),
+		test_utils.NewTestCase("multiple chainned futures", "", func() bool {
+			f0_1 := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+				time.Sleep(1 * time.Second)
+				ra(1)
+			})
+			f1_2 := f0_1.Then(func(i interface{}) (interface{}, error) {
+				return i.(int) + 1, nil
+			})
+			f2_3 := f0_1.Then(func(i interface{}) (interface{}, error) {
+				return i.(int) + 2, nil
+			})
+			f3_err := f2_3.Then(func(i interface{}) (interface{}, error) {
+				return nil, errors.Error("f3 error")
+			})
+			f3_1_err := f3_err.Then(func(i interface{}) (interface{}, error) {
+				return i.(int) + 3, nil
+			})
+			_, f3_err_info := f3_err.Get()
+			f3_1_res, f3_1_err_info := f3_1_err.Get()
+
+			f0_1_r, f0_1_e := f0_1.Get()
+
+			test_utils.AssertEquals(f0_1.MustGet().(int), 1)
+			test_utils.AssertEquals(f1_2.MustGet().(int), 2)
+			test_utils.AssertEquals(f2_3.MustGet().(int), 3)
+			test_utils.AssertEquals(f3_err_info.Error(), "f3 error")
+			test_utils.AssertNil(f3_1_res)
+			test_utils.AssertEquals(f3_1_err_info.Error(), "f3 error")
+			test_utils.AssertEquals(f0_1_r.(int), 1)
+			test_utils.AssertNil(f0_1_e)
 			return true
 		}),
 	}).Do(t)

@@ -198,14 +198,29 @@ func (f *future) ThenAsyncWithExecutor(onComplete func(interface{}) (Future, err
 			rej(err)
 			return
 		}
-		// TODO need to investigate why promise style doesn't work
-		nextFuture.Then(func(nextInput interface{}) (interface{}, error) {
-			res(nextInput)
-			return nil, nil
-		}).OnError(func(err error) {
-			rej(err)
-		})
-	}, executor, f))
+
+		nextFutureInternal, ok := nextFuture.(*future)
+		if !ok {
+			// if casting fails, use traditional chainning approach
+			nextFuture.Then(func(nextInput interface{}) (interface{}, error) {
+				res(nextInput)
+				return nil, nil
+			}).OnError(func(err error) {
+				rej(err)
+			})
+		} else {
+			// otherwise, use internal chainning approach for simplicity and performance
+			nextFutureInternal.then(newFuture(func() (interface{}, error) {
+				r, e := nextFuture.Get()
+				if e != nil {
+					rej(e)
+				} else {
+					res(r)
+				}
+				return nil, nil
+			}, executor, nextFutureInternal))
+		}
+	}, executor, f, false))
 }
 
 func (f *future) Then(onSuccess func(interface{}) (interface{}, error)) Future {
@@ -387,7 +402,7 @@ func NewComputedErrorReturningFuture(task ComputableAsyncTaskWithError, executor
 	return f
 }
 
-func newPromisedFuture(resolver func(ResultAcceptor, ErrorAcceptor), executor Executor, prevFuture *future) *future {
+func newPromisedFuture(resolver func(ResultAcceptor, ErrorAcceptor), executor Executor, prevFuture *future, immediateRun bool) *future {
 	f := newFuture(nil, executor, prevFuture)
 	f.task = func() (_ interface{}, _ error) {
 		resolver(func(computedResult interface{}) {
@@ -398,7 +413,10 @@ func newPromisedFuture(resolver func(ResultAcceptor, ErrorAcceptor), executor Ex
 		return
 	}
 	// promised future should automatically start on creation
-	return f.run()
+	if immediateRun {
+		return f.run()
+	}
+	return f
 }
 
 type ResultAcceptor = func(interface{})
@@ -407,11 +425,11 @@ type ErrorAcceptor = func(error)
 // From creates a new Future that settles through a callback.
 // NOTE: do not run resolve with the direct executor(i.e. run on a different goroutine)
 func From(resolver func(ResultAcceptor, ErrorAcceptor)) Future {
-	return newPromisedFuture(resolver, DirectExecutor, nil)
+	return newPromisedFuture(resolver, DirectExecutor, nil, true)
 }
 
 func FromWithExecutor(resolver func(ResultAcceptor, ErrorAcceptor), executor Executor) Future {
-	return newPromisedFuture(resolver, executor, nil)
+	return newPromisedFuture(resolver, executor, nil, true)
 }
 
 func IsCanceled(f Future) bool {
@@ -447,20 +465,5 @@ func whenAllCompleted(futures []Future) *future {
 			f.Wait()
 		}
 		return nil, nil
-	}, DirectExecutor, nil)
-}
-
-func whenAllSucceeded(futures []Future) *future {
-	return newPromisedFuture(func(res ResultAcceptor, rej ErrorAcceptor) {
-		for _, f := range futures {
-			f.ThenWithFuture(newPromisedFuture(func(ra ResultAcceptor, ea ErrorAcceptor) {
-				r, err := f.Get()
-				if err != nil {
-					ea(err)
-					return
-				}
-				res(r)
-			}, DirectExecutor, nil))
-		}
 	}, DirectExecutor, nil)
 }

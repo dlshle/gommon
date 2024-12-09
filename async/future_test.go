@@ -9,7 +9,7 @@ import (
 )
 
 func TestFuture(t *testing.T) {
-	test_utils.NewTestGroup("Future", "future library test").Cases([]*test_utils.Assertion{
+	test_utils.NewTestGroup("Futures", "future library test").Cases([]*test_utils.Assertion{
 		test_utils.NewTestCase("direct executor chain", "", func() bool {
 			flipper := func(input interface{}) (interface{}, error) {
 				return !input.(bool), nil
@@ -214,6 +214,24 @@ func TestFuture(t *testing.T) {
 				return true, nil
 			}).MustGet().(bool)
 			test_utils.AssertTrue(res)
+
+			res1 := ImmediateFuture(1).ThenAsync(func(i interface{}) (Future, error) {
+				return From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+					go func() {
+						num, ok := i.(int)
+						if !ok {
+							ea(errors.Error("error"))
+							return
+						}
+						ra(num + 1)
+					}()
+				}), nil
+			}).ThenAsync(func(i interface{}) (Future, error) {
+				return ImmediateFuture(i).Then(func(i interface{}) (interface{}, error) {
+					return i.(int) + 1, nil
+				}), nil
+			}).MustGet().(int)
+			test_utils.AssertEquals(res1, 3)
 			return true
 		}),
 		test_utils.NewTestCase("multiple chainned futures", "", func() bool {

@@ -87,11 +87,9 @@ func splitQueryParams(path string) (queries string, remaining string) {
 }
 
 const (
-	tnTypeP  = 0
-	tnTypeW  = 1
-	tnTypeC  = 2
-	tnTypePC = 3
-	tnTypeWC = 4
+  tnTypeP  = 0 // param node(e.g. :param)
+	tnTypeW  = 1 // wildcard node
+	tnTypeC  = 2 // constant or literal node
 )
 
 type trieNode struct {
@@ -162,7 +160,7 @@ func (n *trieNode) addPath(ctx UriContext, path string, value interface{}, overr
 			err = utils.ProcessWithErrors(
 				func() error {
 					if ctx.params[param] {
-						fmt.Errorf("param %s has already been taken in url %s", param, path)
+						return fmt.Errorf("param %s has already been taken in url %s", param, path)
 					}
 					return nil
 				},

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"os"
 	"time"
 
 	nhttp "net/http"
@@ -19,7 +18,7 @@ const (
 	defaultFlushThreshold = 1024 * 1024 * 16
 )
 
-var consoleLogger = logging.NewLevelLogger("[OpenObserveWriter]", logging.NewConsoleLogWriter(os.Stdout))
+var consoleLogger = logging.StdOutLevelLogger("[OpenObserveWriter]")
 
 type OpenObserveLoggingConfig struct {
 	Host           string

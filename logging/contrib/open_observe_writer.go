@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"time"
 
 	nhttp "net/http"
@@ -17,6 +18,8 @@ import (
 const (
 	defaultFlushThreshold = 1024 * 1024 * 16
 )
+
+var consoleLogger = logging.NewLevelLogger("[OpenObserveWriter]", logging.NewConsoleLogWriter(os.Stdout))
 
 type OpenObserveLoggingConfig struct {
 	Host           string
@@ -96,8 +99,6 @@ func (o *OpenObserveWriter) flush(blocks []byte) {
 	if len(blocks) == 0 {
 		return
 	}
-	logs := string(blocks)
-	logging.GlobalLogger.Debugf(o.ctx, "OpenObserveWriter: flush %d bytes", len(logs))
 	req := http.NewRequestBuilder().
 		Method("POST").
 		URL(o.streamURL).
@@ -107,10 +108,10 @@ func (o *OpenObserveWriter) flush(blocks []byte) {
 	for i := 0; i < 3; i++ {
 		resp := o.c.Request(req)
 		if resp.Success {
-			logging.GlobalLogger.Infof(o.ctx, "OpenObserveWriter: %d bytes of logs flushed.", len(blocks))
+			consoleLogger.Infof(o.ctx, "OpenObserveWriter: %d bytes of logs flushed.", len(blocks))
 			return
 		}
 		time.Sleep(time.Second)
 	}
-	logging.GlobalLogger.Errorf(o.ctx, "Failed to flush %d logs to OpenObserve.")
+	consoleLogger.Errorf(o.ctx, "Failed to flush %d logs to OpenObserve.")
 }

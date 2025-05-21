@@ -235,6 +235,13 @@ func (l *LevelLogger) SetWaterMark(waterMark int) {
 	l.logLevelWaterMark = waterMark
 }
 
+func (l *LevelLogger) WaterMarkWithPropogate(waterMark int) {
+	l.logLevelWaterMark = waterMark
+	for _, subLogger := range l.subLoggers {
+		subLogger.WaterMarkWithPropogate(waterMark)
+	}
+}
+
 func (l *LevelLogger) WithWaterMark(waterMark int) Logger {
 	subLogger := &LevelLogger{
 		writer:            l.writer,

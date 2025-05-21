@@ -71,6 +71,7 @@ type Logger interface {
 
 	SetContext(k, v string)
 	SetWaterMark(int)
+	WaterMarkWithPropogate(int)
 	DeleteContext(k string)
 	Prefix(prefix string)
 	PrefixWithPropogate(prefix string)

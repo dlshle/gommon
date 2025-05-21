@@ -40,7 +40,7 @@ type OpenObserveWriter struct {
 }
 
 func NewOpenObserveWriter(ctx context.Context, cfg *OpenObserveLoggingConfig) logging.LogWriter {
-	c := http.NewBuilder().Id(fmt.Sprintf("[OpenObserveWriter] %s-%s-%s", cfg.Host, cfg.Organization, cfg.Stream)).TimeoutSec(60).MaxConnsPerHost(5).Build()
+	c := http.NewBuilder().TimeoutSec(60).MaxConnsPerHost(5).Build()
 	ow := &OpenObserveWriter{
 		ctx:            ctx,
 		c:              c,

@@ -5,7 +5,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -38,12 +37,12 @@ const (
 	ERROR
 	FATAL
 
-	pTrace = "[TRACE]"
-	pDebug = "[DEBUG]"
-	pInfo  = "[INFO]"
-	pWarn  = "[WARN]"
-	pError = "[ERROR]"
-	pFatal = "[FATAL]"
+	pTrace = "TRACE"
+	pDebug = "DEBUG"
+	pInfo  = "INFO"
+	pWarn  = "WARN"
+	pError = "ERROR"
+	pFatal = "FATAL"
 )
 
 var LogLevelPrefixMap = map[int]string{
@@ -131,7 +130,9 @@ func (w SimpleStringWriter) Write(logEntity *LogEntity) {
 	var builder bytes.Buffer
 	builder.WriteString(logEntity.Timestamp.Format(time.RFC3339))
 	builder.WriteRune(' ')
+	builder.WriteRune('[')
 	builder.WriteString(LogLevelPrefixMap[logEntity.Level])
+	builder.WriteRune(']')
 	builder.WriteRune(' ')
 	builder.WriteString(logEntity.Prefix)
 	builder.WriteRune(' ')
@@ -177,17 +178,17 @@ func (w JSONWriter) Write(entity *LogEntity) {
 func (w JSONWriter) getJSONEntityBytes(entity *LogEntity) []byte {
 	var builder bytes.Buffer
 	builder.WriteRune('{')
-	w.writeKVPair(builder, w.quoteWith("timestamp"), w.quoteWith(entity.Timestamp.Format(time.RFC3339)))
+	w.writeKVPair(&builder, w.quoteWith("timestamp"), w.quoteWith(entity.Timestamp.Format(time.RFC3339)))
 	builder.WriteRune(',')
-	w.writeKVPair(builder, w.quoteWith("file"), w.quoteWith(entity.File))
+	w.writeKVPair(&builder, w.quoteWith("file"), w.quoteWith(entity.File))
 	builder.WriteRune(',')
-	w.writeKVPair(builder, w.quoteWith("level"), strconv.Itoa(entity.Level))
+	w.writeKVPair(&builder, w.quoteWith("level"), w.quoteWith(LogLevelPrefixMap[entity.Level]))
 	builder.WriteRune(',')
-	w.writeKVPair(builder, w.quoteWith("prefix"), w.quoteWith(entity.Prefix))
+	w.writeKVPair(&builder, w.quoteWith("prefix"), w.quoteWith(utils.EncodeJSONString(entity.Prefix)))
 	builder.WriteRune(',')
-	w.writeKVPair(builder, w.quoteWith("message"), w.quoteWith(entity.Message))
+	w.writeKVPair(&builder, w.quoteWith("message"), w.quoteWith(utils.EncodeJSONString(entity.Message)))
 	builder.WriteRune(',')
-	w.writeKVPair(builder, w.quoteWith("context"), utils.StringMapToJSON(entity.Context))
+	w.writeKVPair(&builder, w.quoteWith("context"), utils.StringMapToJSON(entity.Context))
 	builder.WriteRune('}')
 	return builder.Bytes()
 }
@@ -196,8 +197,10 @@ func (w JSONWriter) quoteWith(val string) string {
 	return "\"" + val + "\""
 }
 
-func (w JSONWriter) writeKVPair(b bytes.Buffer, k, v string) string {
-	return k + ":" + v
+func (w JSONWriter) writeKVPair(b *bytes.Buffer, k, v string) {
+	b.WriteString(k)
+	b.WriteRune(':')
+	b.WriteString(v)
 }
 
 type NoopWriter struct{}

@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 var Rando *rand.Rand
@@ -161,7 +162,7 @@ func StringMapToJSON(s map[string]string) string {
 	for k, v := range s {
 		buffer.WriteRune('"')
 		buffer.WriteString(k)
-		buffer.WriteString("\":\"" + v + "\"")
+		buffer.WriteString("\":\"" + EncodeJSONString(v) + "\"")
 		if counter < l-1 {
 			buffer.WriteRune(',')
 		}
@@ -197,4 +198,90 @@ func RandomStringWithSize(size int) string {
 		result = append(result, bytes[r.Intn(len(bytes))])
 	}
 	return string(result)
+}
+
+const hex = "0123456789abcdef"
+
+func EncodeJSONString(src string) string {
+	var b []byte
+	buf := bytes.NewBuffer(b)
+	start := 0
+	for i := 0; i < len(src); {
+		if b := src[i]; b < utf8.RuneSelf {
+			buf.WriteString(src[start:i])
+			switch b {
+			case '\\', '"':
+				buf.WriteRune('\\')
+				buf.WriteByte(b)
+			case '\b':
+				buf.WriteRune('\\')
+				buf.WriteRune('b')
+			case '\f':
+				buf.WriteRune('\\')
+				buf.WriteRune('f')
+			case '\n':
+				buf.WriteRune('\\')
+				buf.WriteRune('n')
+			case '\r':
+				buf.WriteRune('\\')
+				buf.WriteRune('r')
+			case '\t':
+				buf.WriteRune('\\')
+				buf.WriteRune('t')
+			default:
+				// This encodes bytes < 0x20 except for \b, \f, \n, \r and \t.
+				// If escapeHTML is set, it also escapes <, >, and &
+				// because they can lead to security holes when
+				// user-controlled strings are rendered into JSON
+				// and served to some browsers.
+				buf.WriteRune('\\')
+				buf.WriteRune('u')
+				buf.WriteRune('0')
+				buf.WriteRune('0')
+				buf.WriteByte(hex[b>>4])
+				buf.WriteByte(hex[b&0xF])
+			}
+			i++
+			start = i
+			continue
+		}
+		// TODO(https://go.dev/issue/56948): Use generic utf8 functionality.
+		// For now, cast only a small portion of byte slices to a string
+		// so that it can be stack allocated. This slows down []byte slightly
+		// due to the extra copy, but keeps string performance roughly the same.
+		n := len(src) - i
+		if n > utf8.UTFMax {
+			n = utf8.UTFMax
+		}
+		c, size := utf8.DecodeRuneInString(string(src[i : i+n]))
+		if c == utf8.RuneError && size == 1 {
+			buf.WriteString(src[start:i])
+			buf.WriteString(`\ufffd`)
+			i += size
+			start = i
+			continue
+		}
+		// U+2028 is LINE SEPARATOR.
+		// U+2029 is PARAGRAPH SEPARATOR.
+		// They are both technically valid characters in JSON strings,
+		// but don't work in JSONP, which has to be evaluated as JavaScript,
+		// and can lead to security holes there. It is valid JSON to
+		// escape them, so we do so unconditionally.
+		// See https://en.wikipedia.org/wiki/JSON#Safety.
+		if c == '\u2028' || c == '\u2029' {
+			buf.WriteString(src[start:i])
+			buf.WriteRune('\\')
+			buf.WriteRune('u')
+			buf.WriteRune('2')
+			buf.WriteRune('0')
+			buf.WriteRune('2')
+			buf.WriteByte(hex[c&0xF])
+			i += size
+			start = i
+			continue
+		}
+		i += size
+	}
+	buf.WriteString(src[start:])
+	return buf.String()
 }

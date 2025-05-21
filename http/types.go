@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -95,6 +96,7 @@ type RequestBuilder interface {
 	URL(url string) RequestBuilder
 	Header(header http.Header) RequestBuilder
 	Body(body io.ReadCloser) RequestBuilder
+	BytesBody(body []byte) RequestBuilder
 	StringBody(body string) RequestBuilder
 }
 
@@ -148,6 +150,11 @@ func (b *requestBuilder) Header(header http.Header) RequestBuilder {
 
 func (b *requestBuilder) Body(body io.ReadCloser) RequestBuilder {
 	b.request.Body = body
+	return b
+}
+
+func (b *requestBuilder) BytesBody(body []byte) RequestBuilder {
+	b.request.Body = io.NopCloser(bytes.NewBuffer(body))
 	return b
 }
 

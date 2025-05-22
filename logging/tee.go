@@ -1,31 +1,17 @@
 package logging
 
-import (
-	"io"
-	"os"
-)
-
 type TeeWriter struct {
-	writers []io.Writer
+	writers []LogWriter
 }
 
-func (tw *TeeWriter) Write(p []byte) (n int, err error) {
+func (tw *TeeWriter) Write(entity *LogEntity) {
 	for _, w := range tw.writers {
-		_, err = w.Write(p)
+		w.Write(entity)
 	}
-	return 0, err
 }
 
-func NewTeeWriter(writers ...io.Writer) *TeeWriter {
+func NewTeeWriter(writers ...LogWriter) LogWriter {
 	return &TeeWriter{
 		writers,
-	}
-}
-
-func NewFileConsoleTeeWriter(logPath string) *TeeWriter {
-	return &TeeWriter{
-		[]io.Writer{
-			os.Stdout,
-		},
 	}
 }

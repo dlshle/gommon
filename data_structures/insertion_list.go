@@ -1,11 +1,19 @@
 package data_structures
 
-import "sync"
+import (
+	"sort"
+	"sync"
+
+	"github.com/dlshle/gommon/slices"
+)
 
 type InsertionList[T comparable] interface {
 	Container
 	Get(index int) T
+	Head() T
+	Tail() T
 	Add(item T)
+	Filter(f func(T) bool) InsertionList[T]
 	Remove(item T) bool
 	RemoveAt(index int) bool
 	Find(item T) int
@@ -26,12 +34,42 @@ func NewInsertionList[T comparable](comparator func(l T, r T) int) InsertionList
 	}
 }
 
+func NewInsertionListOf[T comparable](l []T, comparator func(l T, r T) int) InsertionList[T] {
+	copy := make([]T, len(l))
+	for i := range l {
+		copy[i] = l[i]
+	}
+	sort.Slice(copy, func(i, j int) bool {
+		return comparator(l[i], l[j]) < 0
+	})
+	return &insertionList[T]{
+		list:       copy,
+		comparator: comparator,
+	}
+}
+
 func (l *insertionList[T]) Get(index int) T {
 	var zeroVal T
 	if index < 0 || index > len(l.list) {
 		return zeroVal
 	}
 	return l.list[index]
+}
+
+func (l *insertionList[T]) Head() T {
+	return l.Get(0)
+}
+
+func (l *insertionList[T]) Tail() T {
+	return l.Get(len(l.list) - 1)
+}
+
+func (l *insertionList[T]) Filter(f func(T) bool) InsertionList[T] {
+	filtered := slices.Filter(l.list, f)
+	return &insertionList[T]{
+		comparator: l.comparator,
+		list:       filtered,
+	}
 }
 
 func (l *insertionList[T]) Add(item T) {
@@ -139,6 +177,27 @@ func (l *safeInsertionList[T]) withWrite(cb func()) {
 func (l *safeInsertionList[T]) Get(index int) (res T) {
 	l.withRead(func() {
 		res = l.list.Get(index)
+	})
+	return
+}
+
+func (l *safeInsertionList[T]) Head() (res T) {
+	l.withRead(func() {
+		res = l.list.Head()
+	})
+	return
+}
+
+func (l *safeInsertionList[T]) Tail() (res T) {
+	l.withRead(func() {
+		res = l.list.Tail()
+	})
+	return
+}
+
+func (l *safeInsertionList[T]) Filter(f func(T) bool) (res InsertionList[T]) {
+	l.withRead(func() {
+		res = l.list.Filter(f)
 	})
 	return
 }

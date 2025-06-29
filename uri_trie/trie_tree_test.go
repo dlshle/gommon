@@ -3,7 +3,7 @@ package uri_trie
 import (
 	"testing"
 
-	"github.com/dlshle/gommon/test_utils"
+	test_utils "github.com/dlshle/gommon/testutils"
 )
 
 func TestTrieTree(t *testing.T) {

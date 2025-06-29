@@ -1,15 +1,16 @@
 package async
 
 import (
-	"github.com/dlshle/gommon/test_utils"
 	"testing"
 	"time"
+
+	testutils "github.com/dlshle/gommon/testutils"
 )
 
 func TestSingleRequest(t *testing.T) {
 	requestGroup := NewRequestGroup()
-	test_utils.NewGroup("single request", "").Cases(
-		test_utils.NewWithDescription("basic request", "", func() {
+	testutils.NewGroup("single request", "").Cases(
+		testutils.NewWithDescription("basic request", "", func() {
 			counter := 0
 			incr := func() (interface{}, error) {
 				time.Sleep(time.Second)
@@ -22,9 +23,9 @@ func TestSingleRequest(t *testing.T) {
 				}()
 			}
 			result, _ := requestGroup.Do("incr", incr)
-			test_utils.AssertEquals(result.(int), counter)
+			testutils.AssertEquals(result.(int), counter)
 		}),
-		test_utils.NewWithDescription("two continue requests", "", func() {
+		testutils.NewWithDescription("two continue requests", "", func() {
 			counter := 0
 			incr := func() (interface{}, error) {
 				time.Sleep(time.Second)
@@ -43,9 +44,9 @@ func TestSingleRequest(t *testing.T) {
 				}()
 			}
 			result, _ := requestGroup.Do("incr", incr)
-			test_utils.AssertEquals(result.(int), counter)
+			testutils.AssertEquals(result.(int), counter)
 		}),
-		test_utils.NewWithDescription("two separate request", "", func() {
+		testutils.NewWithDescription("two separate request", "", func() {
 			counter := 0
 			counter1 := 0
 			incr := func() (interface{}, error) {
@@ -69,7 +70,7 @@ func TestSingleRequest(t *testing.T) {
 				}()
 			}
 			requestGroup.Do("incr", incr)
-			test_utils.AssertEquals(counter, counter1)
+			testutils.AssertEquals(counter, counter1)
 		}),
 	).Do(t)
 }

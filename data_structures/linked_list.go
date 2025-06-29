@@ -13,6 +13,7 @@ type LinkedList[T comparable] interface {
 	Get(index int) T
 	Remove(index int) T
 	Insert(index int, value T) bool
+	Filter(f func(T) bool) LinkedList[T]
 	Append(value T)
 	Prepend(value T)
 	Poll() T
@@ -271,6 +272,16 @@ func (l *linkedList[T]) Remove(index int) T {
 
 func (l *linkedList[T]) Insert(index int, value T) bool {
 	return l.insert(index, value)
+}
+
+func (l *linkedList[T]) Filter(f func(T) bool) LinkedList[T] {
+	filteredList := NewLinkedList[T](l.safe)
+	l.ForEach(func(item T, index int) {
+		if f(item) {
+			filteredList.Append(item)
+		}
+	})
+	return filteredList
 }
 
 func (l *linkedList[T]) Append(value T) {

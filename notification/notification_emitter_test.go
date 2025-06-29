@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/dlshle/gommon/async"
-	"github.com/dlshle/gommon/test_utils"
+	test_utils "github.com/dlshle/gommon/testutils"
 )
 
 func TestNotificationEmitter(t *testing.T) {

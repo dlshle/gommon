@@ -3,12 +3,13 @@ package async
 import (
 	"testing"
 	"time"
-	"github.com/dlshle/gommon/test_utils"
+
+	testutils "github.com/dlshle/gommon/testutils"
 )
 
 func TestBarrier(t *testing.T) {
-	test_utils.NewTestGroup("waitlock", "").Cases([]*test_utils.Assertion{
-		test_utils.NewTestCase("lock and relock", "", func() bool {
+	testutils.NewTestGroup("waitlock", "").Cases([]*testutils.Assertion{
+		testutils.NewTestCase("lock and relock", "", func() bool {
 			b := NewWaitLock()
 			if b.IsOpen() {
 				return false

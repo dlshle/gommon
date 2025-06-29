@@ -5,12 +5,12 @@ import (
 	"time"
 
 	"github.com/dlshle/gommon/errors"
-	"github.com/dlshle/gommon/test_utils"
+	testutils "github.com/dlshle/gommon/testutils"
 )
 
 func TestFuture(t *testing.T) {
-	test_utils.NewTestGroup("Futures", "future library test").Cases([]*test_utils.Assertion{
-		test_utils.NewTestCase("direct executor chain", "", func() bool {
+	testutils.NewTestGroup("Futures", "future library test").Cases([]*testutils.Assertion{
+		testutils.NewTestCase("direct executor chain", "", func() bool {
 			flipper := func(input interface{}) (interface{}, error) {
 				return !input.(bool), nil
 			}
@@ -18,7 +18,7 @@ func TestFuture(t *testing.T) {
 				return true
 			}, NewGoRoutineExecutor).Then(flipper).Then(flipper).Then(flipper).Then(flipper).MustGet().(bool)
 		}),
-		test_utils.NewTestCase("new goroutine executor chain with panic", "", func() bool {
+		testutils.NewTestCase("new goroutine executor chain with panic", "", func() bool {
 			var errMsg string
 			NewComputedFuture(func() interface{} {
 				panic("err")
@@ -31,7 +31,7 @@ func TestFuture(t *testing.T) {
 			}).Wait()
 			return errMsg == "err"
 		}),
-		test_utils.NewTestCase("async pool executor single chain with no panic", "", func() bool {
+		testutils.NewTestCase("async pool executor single chain with no panic", "", func() bool {
 			counter := 0
 			pool := NewAsyncPool("test", 128, 16)
 			incrAndReturnCounter := func(prev interface{}) (interface{}, error) {
@@ -45,7 +45,7 @@ func TestFuture(t *testing.T) {
 			t.Logf("started worker: %d", pool.NumStartedWorkers())
 			return counter == 5
 		}),
-		test_utils.NewTestCase("async pool executor single chain with multiple panic", "", func() bool {
+		testutils.NewTestCase("async pool executor single chain with multiple panic", "", func() bool {
 			counter := 0
 			errCounter := 0
 			pool := NewAsyncPool("test", 128, 16)
@@ -65,7 +65,7 @@ func TestFuture(t *testing.T) {
 			t.Logf("started worker: %d", pool.NumStartedWorkers())
 			return counter == 2 && errCounter == 2
 		}),
-		test_utils.NewTestCase("async pool executor single chain with multiple panic and cancellation", "", func() bool {
+		testutils.NewTestCase("async pool executor single chain with multiple panic and cancellation", "", func() bool {
 			counter := 0
 			pool := NewAsyncPool("test", 128, 16)
 			incrAndReturnCounter := func(prev interface{}) (interface{}, error) {
@@ -83,8 +83,8 @@ func TestFuture(t *testing.T) {
 			f.Cancel()
 			t.Logf("started worker: %d", pool.NumStartedWorkers())
 			return counter == 0
-		}).WithMultiple(10, true).(*test_utils.Assertion),
-		test_utils.NewTestCase("async pool executor with promised future", "", func() bool {
+		}).WithMultiple(10, true).(*testutils.Assertion),
+		testutils.NewTestCase("async pool executor with promised future", "", func() bool {
 			start := time.Now()
 			t.Logf("started promised future")
 			return From(func(ra ResultAcceptor, ea ErrorAcceptor) {
@@ -104,96 +104,96 @@ func TestFuture(t *testing.T) {
 				}
 				return time.Since(start) > time.Second*2, nil
 			}).ThenWithExecutor(func(i interface{}) (interface{}, error) {
-				test_utils.AssertTrue(i.(bool))
+				testutils.AssertTrue(i.(bool))
 				return true, nil
 			}, NewAsyncPool("", 128, 64)).MustGet().(bool)
-		}).WithMultiple(10, true).(*test_utils.Assertion),
-		test_utils.NewTestCase("error catching propogation", "", func() bool {
+		}).WithMultiple(10, true).(*testutils.Assertion),
+		testutils.NewTestCase("error catching propogation", "", func() bool {
 			mappedErr, err := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
 				go func() {
 					time.Sleep(1 * time.Second)
 					ea(errors.Error("mock error"))
 				}()
 			}).Then(func(i interface{}) (interface{}, error) {
-				test_utils.AssertEquals("failed", "first")
+				testutils.AssertEquals("failed", "first")
 				return nil, nil
 			}).Then(func(i interface{}) (interface{}, error) {
-				test_utils.AssertEquals("failed", "second")
+				testutils.AssertEquals("failed", "second")
 				return nil, nil
 			}).OnError(func(err error) {
-				test_utils.AssertEquals(err.Error(), "mock error")
+				testutils.AssertEquals(err.Error(), "mock error")
 			}).Get()
-			test_utils.AssertEquals(err.Error(), "mock error")
-			test_utils.AssertNil(mappedErr)
+			testutils.AssertEquals(err.Error(), "mock error")
+			testutils.AssertNil(mappedErr)
 			return true
 		}),
-		test_utils.NewTestCase("error catching propogation with mapping", "", func() bool {
+		testutils.NewTestCase("error catching propogation with mapping", "", func() bool {
 			mappedErr, err := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
 				go func() {
 					time.Sleep(1 * time.Second)
 					ea(errors.Error("mock error"))
 				}()
 			}).Then(func(i interface{}) (interface{}, error) {
-				test_utils.AssertEquals("failed", "first")
+				testutils.AssertEquals("failed", "first")
 				return nil, nil
 			}).Then(func(i interface{}) (interface{}, error) {
-				test_utils.AssertEquals("failed", "second")
+				testutils.AssertEquals("failed", "second")
 				return nil, nil
 			}).OnError(func(err error) {
-				test_utils.AssertNonNil(err)
+				testutils.AssertNonNil(err)
 			}).MapError(func(err error) interface{} {
-				test_utils.AssertEquals(err.Error(), "mock error")
+				testutils.AssertEquals(err.Error(), "mock error")
 				return "mapped:" + err.Error()
 			}).Get()
 			// since error is mapped, we expect result from mappedErr
-			test_utils.AssertNil(err)
+			testutils.AssertNil(err)
 			casted, ok := mappedErr.(string)
-			test_utils.AssertTrue(ok)
-			test_utils.AssertEquals(casted, "mapped:mock error")
+			testutils.AssertTrue(ok)
+			testutils.AssertEquals(casted, "mapped:mock error")
 			return true
 		}),
-		test_utils.NewTestCase("panic catching propogation", "", func() bool {
+		testutils.NewTestCase("panic catching propogation", "", func() bool {
 			mappedErr, err := newAsyncTaskFuture(func() {
 				panic(1)
 			}, NewGoRoutineExecutor).Then(func(i interface{}) (interface{}, error) {
-				test_utils.AssertEquals("failed", "first")
+				testutils.AssertEquals("failed", "first")
 				return nil, nil
 			}).Then(func(i interface{}) (interface{}, error) {
-				test_utils.AssertEquals("failed", "second")
+				testutils.AssertEquals("failed", "second")
 				return nil, nil
 			}).OnPanic(func(err interface{}) {
 				casted, ok := err.(int)
-				test_utils.AssertTrue(ok)
-				test_utils.AssertEquals(casted, 1)
+				testutils.AssertTrue(ok)
+				testutils.AssertEquals(casted, 1)
 			}).Get()
-			test_utils.AssertNil(mappedErr)
-			test_utils.AssertNil(err)
+			testutils.AssertNil(mappedErr)
+			testutils.AssertNil(err)
 			return true
 		}),
-		test_utils.NewTestCase("panic catching propogation with mapping", "", func() bool {
+		testutils.NewTestCase("panic catching propogation with mapping", "", func() bool {
 			mappedErr, err := newAsyncTaskFuture(func() {
 				panic(1)
 			}, NewGoRoutineExecutor).Then(func(i interface{}) (interface{}, error) {
-				test_utils.AssertEquals("failed", "first")
+				testutils.AssertEquals("failed", "first")
 				return nil, nil
 			}).Then(func(i interface{}) (interface{}, error) {
-				test_utils.AssertEquals("failed", "second")
+				testutils.AssertEquals("failed", "second")
 				return nil, nil
 			}).OnError(func(err error) {
-				test_utils.AssertNonNil(err)
+				testutils.AssertNonNil(err)
 			}).MapPanic(func(err interface{}) interface{} {
 				casted, ok := err.(int)
-				test_utils.AssertTrue(ok)
-				test_utils.AssertEquals(casted, 1)
+				testutils.AssertTrue(ok)
+				testutils.AssertEquals(casted, 1)
 				return casted + 1
 			}).Get()
-			test_utils.AssertNil(err)
+			testutils.AssertNil(err)
 			casted, ok := mappedErr.(int)
-			test_utils.AssertTrue(ok)
-			test_utils.AssertEquals(casted, 2)
+			testutils.AssertTrue(ok)
+			testutils.AssertEquals(casted, 2)
 			return true
 		}),
-		test_utils.NewTestCase("promise chain", "", func() bool {
+		testutils.NewTestCase("promise chain", "", func() bool {
 			res := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
 				ra(1)
 			}).ThenAsync(func(i interface{}) (Future, error) {
@@ -213,7 +213,7 @@ func TestFuture(t *testing.T) {
 				}
 				return true, nil
 			}).MustGet().(bool)
-			test_utils.AssertTrue(res)
+			testutils.AssertTrue(res)
 
 			res1 := ImmediateFuture(1).ThenAsync(func(i interface{}) (Future, error) {
 				return From(func(ra ResultAcceptor, ea ErrorAcceptor) {
@@ -231,10 +231,10 @@ func TestFuture(t *testing.T) {
 					return i.(int) + 1, nil
 				}), nil
 			}).MustGet().(int)
-			test_utils.AssertEquals(res1, 3)
+			testutils.AssertEquals(res1, 3)
 			return true
 		}),
-		test_utils.NewTestCase("multiple chainned futures", "", func() bool {
+		testutils.NewTestCase("multiple chainned futures", "", func() bool {
 			f0_1 := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
 				time.Sleep(1 * time.Second)
 				ra(1)
@@ -256,14 +256,14 @@ func TestFuture(t *testing.T) {
 
 			f0_1_r, f0_1_e := f0_1.Get()
 
-			test_utils.AssertEquals(f0_1.MustGet().(int), 1)
-			test_utils.AssertEquals(f1_2.MustGet().(int), 2)
-			test_utils.AssertEquals(f2_3.MustGet().(int), 3)
-			test_utils.AssertEquals(f3_err_info.Error(), "f3 error")
-			test_utils.AssertNil(f3_1_res)
-			test_utils.AssertEquals(f3_1_err_info.Error(), "f3 error")
-			test_utils.AssertEquals(f0_1_r.(int), 1)
-			test_utils.AssertNil(f0_1_e)
+			testutils.AssertEquals(f0_1.MustGet().(int), 1)
+			testutils.AssertEquals(f1_2.MustGet().(int), 2)
+			testutils.AssertEquals(f2_3.MustGet().(int), 3)
+			testutils.AssertEquals(f3_err_info.Error(), "f3 error")
+			testutils.AssertNil(f3_1_res)
+			testutils.AssertEquals(f3_1_err_info.Error(), "f3 error")
+			testutils.AssertEquals(f0_1_r.(int), 1)
+			testutils.AssertNil(f0_1_e)
 			return true
 		}),
 	}).Do(t)

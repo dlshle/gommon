@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dlshle/gommon/test_utils"
+	testutils "github.com/dlshle/gommon/testutils"
 )
 
 func TestAsyncPool(t *testing.T) {
 	pool := NewAsyncPool("test", 10, 5)
 	pool.Verbose(true)
-	test_utils.NewGroup("asyncPool", "").Cases(
-		test_utils.New("basic scheduling", func() {
+	testutils.NewGroup("asyncPool", "").Cases(
+		testutils.New("basic scheduling", func() {
 			b := NewStatefulBarrier()
 			go func() {
 				time.Sleep(time.Second)
@@ -25,10 +25,10 @@ func TestAsyncPool(t *testing.T) {
 			computedValue := pool.ScheduleComputable(func() interface{} {
 				return b.Get()
 			})
-			test_utils.AssertTrue(computedValue.Get().(bool))
+			testutils.AssertTrue(computedValue.Get().(bool))
 			t.Logf("num started go routines: %d", pool.NumGoroutineInitiated())
 		}),
-		test_utils.New("multiple scheduling", func() {
+		testutils.New("multiple scheduling", func() {
 			var intVal int32 = 0
 			var wg sync.WaitGroup
 			for i := 0; i < 100; i++ {
@@ -39,16 +39,16 @@ func TestAsyncPool(t *testing.T) {
 				})
 			}
 			wg.Wait()
-			test_utils.AssertEquals(intVal, 100)
+			testutils.AssertEquals(intVal, 100)
 			t.Logf("num started go routines: %d", pool.NumGoroutineInitiated())
 		}),
-		test_utils.New("stop and schedule", func() {
+		testutils.New("stop and schedule", func() {
 			var someVal int32 = 0
 			pool.Stop()
 			defer func() {
 				recovered := recover()
-				test_utils.AssertNonNil(recovered)
-				test_utils.AssertEquals(someVal, 0)
+				testutils.AssertNonNil(recovered)
+				testutils.AssertEquals(someVal, 0)
 				t.Logf("num started go routines: %d", pool.NumGoroutineInitiated())
 			}()
 			t.Logf("num started go routines: %d", pool.NumGoroutineInitiated())

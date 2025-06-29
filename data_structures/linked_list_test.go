@@ -1,9 +1,10 @@
 package data_structures
 
 import (
-	"github.com/dlshle/gommon/test_utils"
-	"github.com/dlshle/gommon/utils"
 	"testing"
+
+	test_utils "github.com/dlshle/gommon/testutils"
+	"github.com/dlshle/gommon/utils"
 )
 
 func TestLinkedList(t *testing.T) {

@@ -110,7 +110,7 @@ func (o *OpenObserveWriter) flush(blocks []byte) {
 			consoleLogger.Infof(o.ctx, "OpenObserveWriter: %d bytes of logs flushed.", len(blocks))
 			return
 		}
+		consoleLogger.Errorf(o.ctx, "Failed to flush %d logs to OpenObserve on %d attempt with response (%d, %s) on URI %s.", len(blocks), i, resp.Code, resp.Body, resp.URI)
 		time.Sleep(time.Second)
 	}
-	consoleLogger.Errorf(o.ctx, "Failed to flush %d logs to OpenObserve.")
 }

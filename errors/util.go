@@ -35,11 +35,15 @@ type TrackableError struct {
 }
 
 func (q *TrackableError) Error() string {
-	return fmt.Sprintf("original error: %s\nstacktrace:\n%s", q.err.Error(), q.stacktrace.Format())
+	return fmt.Sprintf("%s\nroot causing stacktrace:\n%s", q.err.Error(), q.stacktrace.Format())
 }
 
 func (q *TrackableError) Stacktrace() string {
 	return q.stacktrace.Format()
+}
+
+func (q *TrackableError) CausingError() error {
+	return q.err
 }
 
 func Error(msg string) *TrackableError {
@@ -47,6 +51,9 @@ func Error(msg string) *TrackableError {
 }
 
 func newTrackableErr(err error, stacktrace *stack) *TrackableError {
+	if te, ok := err.(*TrackableError); ok {
+		stacktrace = te.stacktrace
+	}
 	return &TrackableError{
 		err:        err,
 		stacktrace: stacktrace,

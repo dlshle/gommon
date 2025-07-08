@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const DefaultStackDepth = 16
+
 type stack []uintptr
 
 func (s *stack) Format() string {
@@ -47,7 +49,7 @@ func (q *TrackableError) CausingError() error {
 }
 
 func Error(msg string) *TrackableError {
-	return newTrackableErr(errors.New(msg), stacktraceWithDepth(32, 1))
+	return newTrackableErr(errors.New(msg), stacktraceWithDepth(DefaultStackDepth, 1))
 }
 
 func newTrackableErr(err error, stacktrace *stack) *TrackableError {
@@ -68,11 +70,11 @@ func stacktraceWithDepth(depth int, frameSkips int) *stack {
 }
 
 func StackTrace(frameSkips int) string {
-	return stacktraceWithDepth(32, frameSkips+1).Format()
+	return stacktraceWithDepth(DefaultStackDepth, frameSkips+1).Format()
 }
 
 func Errorf(formatter string, fields ...any) *TrackableError {
-	return newTrackableErr(fmt.Errorf(formatter, fields...), stacktraceWithDepth(32, 1))
+	return newTrackableErr(fmt.Errorf(formatter, fields...), stacktraceWithDepth(DefaultStackDepth, 1))
 }
 
 func ErrorWith(errMsgs ...string) *TrackableError {
@@ -81,9 +83,9 @@ func ErrorWith(errMsgs ...string) *TrackableError {
 		errMsgBuilder.WriteString(msg)
 		errMsgBuilder.WriteByte(';')
 	}
-	return newTrackableErr(errors.New(errMsgBuilder.String()), stacktraceWithDepth(32, 1))
+	return newTrackableErr(errors.New(errMsgBuilder.String()), stacktraceWithDepth(DefaultStackDepth, 1))
 }
 
 func WrapWithStackTrace(err error) *TrackableError {
-	return newTrackableErr(err, stacktraceWithDepth(32, 1))
+	return newTrackableErr(err, stacktraceWithDepth(DefaultStackDepth, 1))
 }

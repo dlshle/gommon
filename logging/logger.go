@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dlshle/gommon/errors"
 	"github.com/dlshle/gommon/utils"
 )
 
@@ -60,6 +61,7 @@ type Logger interface {
 	Info(ctx context.Context, records ...string)
 	Warn(ctx context.Context, records ...string)
 	Error(ctx context.Context, records ...string)
+	TrackableError(ctx context.Context, err *errors.TrackableError, records ...string)
 	Fatal(ctx context.Context, records ...string)
 
 	Tracef(ctx context.Context, format string, records ...interface{})
@@ -67,6 +69,7 @@ type Logger interface {
 	Infof(ctx context.Context, format string, records ...interface{})
 	Warnf(ctx context.Context, format string, records ...interface{})
 	Errorf(ctx context.Context, format string, records ...interface{})
+	TrackableErrorf(ctx context.Context, err *errors.TrackableError, format string, records ...interface{})
 	Fatalf(ctx context.Context, format string, records ...interface{})
 
 	SetContext(k, v string)

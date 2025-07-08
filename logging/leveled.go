@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strconv"
 	"time"
+
+	"github.com/dlshle/gommon/errors"
 )
 
 type LevelLogger struct {
@@ -122,11 +124,15 @@ func (l *LevelLogger) Warn(ctx context.Context, records ...string) {
 }
 
 func (l *LevelLogger) Error(ctx context.Context, records ...string) {
-	l.output(ctx, ERROR, records...)
+	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, nil), ERROR, records...)
+}
+
+func (l *LevelLogger) TrackableError(ctx context.Context, err *errors.TrackableError, records ...string) {
+	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, err), ERROR, append(records, err.Error())...)
 }
 
 func (l *LevelLogger) Fatal(ctx context.Context, records ...string) {
-	l.output(ctx, FATAL, records...)
+	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, nil), FATAL, records...)
 }
 
 func (l *LevelLogger) Debugf(ctx context.Context, format string, records ...interface{}) {
@@ -146,11 +152,30 @@ func (l *LevelLogger) Warnf(ctx context.Context, format string, records ...inter
 }
 
 func (l *LevelLogger) Errorf(ctx context.Context, format string, records ...interface{}) {
-	l.output(ctx, ERROR, fmt.Sprintf(format, records...))
+	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, nil), ERROR, fmt.Sprintf(format, records...))
+}
+
+func (l *LevelLogger) TrackableErrorf(ctx context.Context, err *errors.TrackableError, format string, records ...interface{}) {
+	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, err), ERROR, fmt.Sprintf(format, records...))
 }
 
 func (l *LevelLogger) Fatalf(ctx context.Context, format string, records ...interface{}) {
-	l.output(ctx, FATAL, fmt.Sprintf(format, records...))
+	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, nil), FATAL, fmt.Sprintf(format, records...))
+}
+
+func (l *LevelLogger) wrapCtxWithStackTraceIfNotPresent(ctx context.Context, err *errors.TrackableError) context.Context {
+	if ctx != nil {
+		ctx = context.Background()
+	}
+	var stacktrace string
+	if err != nil {
+		stacktrace = err.Stacktrace()
+	} else {
+		stacktrace = errors.StackTrace(2)
+	}
+	ctx.Value(CtxValLoggingContext)
+	ctx = WrapCtx(ctx, "stacktrace", stacktrace)
+	return ctx
 }
 
 func (l *LevelLogger) SetContext(k, v string) {

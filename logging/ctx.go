@@ -1,6 +1,8 @@
 package logging
 
-import "context"
+import (
+	"context"
+)
 
 func WrapCtx(ctx context.Context, key, val string) context.Context {
 	originalValue := ctx.Value(CtxValLoggingContext)

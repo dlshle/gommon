@@ -1,6 +1,7 @@
 package errors
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"strconv"
@@ -29,12 +30,12 @@ func (s *stack) Format() string {
 }
 
 type TrackableError struct {
-	msg        string
+	err        error
 	stacktrace *stack
 }
 
 func (q *TrackableError) Error() string {
-	return q.msg
+	return fmt.Sprintf("original error: %s\nstacktrace:\n%s", q.err.Error(), q.stacktrace.Format())
 }
 
 func (q *TrackableError) Stacktrace() string {
@@ -42,11 +43,14 @@ func (q *TrackableError) Stacktrace() string {
 }
 
 func Error(msg string) *TrackableError {
-	return newTrackableErr(msg, stacktraceWithDepth(32, 1))
+	return newTrackableErr(errors.New(msg), stacktraceWithDepth(32, 1))
 }
 
-func newTrackableErr(msg string, stacktrace *stack) *TrackableError {
-	return &TrackableError{msg, stacktrace}
+func newTrackableErr(err error, stacktrace *stack) *TrackableError {
+	return &TrackableError{
+		err:        err,
+		stacktrace: stacktrace,
+	}
 }
 
 func stacktraceWithDepth(depth int, frameSkips int) *stack {
@@ -61,7 +65,7 @@ func StackTrace(frameSkips int) string {
 }
 
 func Errorf(formatter string, fields ...any) *TrackableError {
-	return newTrackableErr(fmt.Sprintf(formatter, fields...), stacktraceWithDepth(32, 1))
+	return newTrackableErr(fmt.Errorf(formatter, fields...), stacktraceWithDepth(32, 1))
 }
 
 func ErrorWith(errMsgs ...string) *TrackableError {
@@ -70,9 +74,9 @@ func ErrorWith(errMsgs ...string) *TrackableError {
 		errMsgBuilder.WriteString(msg)
 		errMsgBuilder.WriteByte(';')
 	}
-	return newTrackableErr(errMsgBuilder.String(), stacktraceWithDepth(32, 1))
+	return newTrackableErr(errors.New(errMsgBuilder.String()), stacktraceWithDepth(32, 1))
 }
 
 func WrapWithStackTrace(err error) *TrackableError {
-	return newTrackableErr(err.Error(), stacktraceWithDepth(32, 1))
+	return newTrackableErr(err, stacktraceWithDepth(32, 1))
 }

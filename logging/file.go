@@ -1,9 +1,11 @@
 package logging
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +19,8 @@ import (
 // log file will be created for next writes until the file
 // size is over logDataSize again
 type FileWriter struct {
+	ctx         context.Context
+	sysLogger   Logger
 	currentFile *os.File
 	logDir      string
 
@@ -31,17 +35,23 @@ func (w *FileWriter) Write(data []byte) (int, error) {
 }
 
 func (w *FileWriter) write(data []byte) (int, error) {
-	defer (func() {
-		w.size += len(data)
-	})()
-	if (w.size + len(data)) > w.logDataSize {
-		if err := w.handleFileSizeExceedsThreshold(); err != nil {
-			// TODO bad error handling
-			// TODO write to another file
-			panic(err)
+	r, err := w.append(data)
+	if err == nil {
+		// only increment file size if write is successful
+		w.incrementSizeAndMaybeSwitchFile(len(data))
+	}
+	return r, err
+}
+
+func (w *FileWriter) incrementSizeAndMaybeSwitchFile(dataSize int) {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+	if w.size > w.logDataSize {
+		if err := w.handleFileSizeExceedsThresholdUnsafe(); err != nil {
+			w.sysLogger.Errorf(w.ctx, "error while writing to log file: %s", err)
 		}
 	}
-	return w.append(data)
+	w.size += dataSize
 }
 
 func (w *FileWriter) append(data []byte) (int, error) {
@@ -53,30 +63,31 @@ func (w *FileWriter) append(data []byte) (int, error) {
 	return w.currentFile.WriteAt(data, offset)
 }
 
-// TODO maybe use a buffer when lock is in use?
-func (w *FileWriter) handleFileSizeExceedsThreshold() (err error) {
-	newLogFilePath := fmt.Sprintf("%s/%s-%s.log", w.logDir, w.logFilePrefix, time.Now().String())
-	w.lock.Lock()
-	defer w.lock.Unlock()
-	err = w.currentFile.Close()
-	var newLogFile *os.File
-	err = utils.ProcessWithErrors(func() error {
-		err = w.currentFile.Close()
-		newLogFile, err = os.Create(newLogFilePath)
-		return err
-	})
+func (w *FileWriter) handleFileSizeExceedsThresholdUnsafe() (err error) {
+	newLogFilePath := fmt.Sprintf("%s/%s-%s.log", w.logDir, w.logFilePrefix, time.Now().Format(time.RFC3339))
+
+	newLogFile, err := os.Create(newLogFilePath)
 	if err != nil {
 		return err
 	}
 	w.currentFile = newLogFile
+	err = w.currentFile.Close()
+	if err != nil {
+		w.sysLogger.Errorf(w.ctx, "Error closing log file: %v", err)
+	}
 	w.size = 0
 	return
 }
 
 func NewFileWriter(logDir string, filePrefix string, logFileSize int) (w *FileWriter, err error) {
-	var file *os.File
-	var stat os.FileInfo
-	var absPath string
+	var (
+		file               *os.File
+		stat               os.FileInfo
+		absPath            string
+		mostRecentModTime  time.Time = time.Unix(0, 0)
+		mostRecentFilePath string
+	)
+
 	err = utils.ProcessWithErrors(func() error {
 		file, err = os.Open(logDir)
 		return err
@@ -89,14 +100,44 @@ func NewFileWriter(logDir string, filePrefix string, logFileSize int) (w *FileWr
 	}, func() error {
 		absPath, err = filepath.Abs(logDir)
 		return err
+	}, func() error {
+		// find all files under the directory and use the latest file as the current log file
+		return filepath.Walk(absPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if !strings.HasPrefix(info.Name(), filePrefix) {
+				return nil
+			}
+			if info.IsDir() {
+				return nil
+			}
+			if info.ModTime().After(mostRecentModTime) {
+				// use this file as the log file
+				mostRecentFilePath = absPath + "/" + info.Name()
+			}
+			return nil
+		})
+	}, func() error {
+		if mostRecentFilePath == "" {
+			// create file
+			logFilePath := fmt.Sprintf("%s/%s-%s.log", absPath, filePrefix, time.Now().Format(time.RFC3339))
+			file, err = os.Create(logFilePath)
+			return err
+		}
+		file, err = os.OpenFile(mostRecentFilePath, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
+		return err
 	})
 	if err != nil {
 		return
 	}
 	return &FileWriter{
+		ctx:           context.Background(),
+		sysLogger:     StdOutLevelLogger(fmt.Sprintf("log-writter-%s", filePrefix)),
+		currentFile:   file,
 		logDir:        absPath,
 		logFilePrefix: filePrefix,
 		logDataSize:   logFileSize,
-		lock:          &sync.Mutex{},
+		lock:          new(sync.Mutex),
 	}, nil
 }

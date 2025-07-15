@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dlshle/gommon/errors"
 	"github.com/dlshle/gommon/utils"
 )
 
@@ -55,25 +56,20 @@ func (w *FileWriter) incrementSizeAndMaybeSwitchFile(dataSize int) {
 }
 
 func (w *FileWriter) append(data []byte) (int, error) {
-	// find the offset to the bottom
-	offset, err := w.currentFile.Seek(0, 2)
-	if err != nil {
-		return -1, err
-	}
-	return w.currentFile.WriteAt(data, offset)
+	return w.currentFile.Write(data)
 }
 
 func (w *FileWriter) handleFileSizeExceedsThresholdUnsafe() (err error) {
 	newLogFilePath := fmt.Sprintf("%s/%s-%s.log", w.logDir, w.logFilePrefix, time.Now().Format(time.RFC3339))
 
-	newLogFile, err := os.Create(newLogFilePath)
+	newLogFile, err := os.OpenFile(newLogFilePath, os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		return err
 	}
 	w.currentFile = newLogFile
 	err = w.currentFile.Close()
 	if err != nil {
-		w.sysLogger.Errorf(w.ctx, "Error closing log file: %v", err)
+		err = errors.WrapWithStackTrace(err)
 	}
 	w.size = 0
 	return
@@ -121,11 +117,9 @@ func NewFileWriter(logDir string, filePrefix string, logFileSize int) (w *FileWr
 	}, func() error {
 		if mostRecentFilePath == "" {
 			// create file
-			logFilePath := fmt.Sprintf("%s/%s-%s.log", absPath, filePrefix, time.Now().Format(time.RFC3339))
-			file, err = os.Create(logFilePath)
-			return err
+			mostRecentFilePath = fmt.Sprintf("%s/%s-%s.log", absPath, filePrefix, time.Now().Format(time.RFC3339))
 		}
-		file, err = os.OpenFile(mostRecentFilePath, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
+		file, err = os.OpenFile(mostRecentFilePath, os.O_CREATE|os.O_APPEND, 0666)
 		return err
 	})
 	if err != nil {

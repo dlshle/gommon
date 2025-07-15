@@ -61,7 +61,7 @@ func (h *httpClientBuilder) MaxConnsPerHost(n int) HTTPClientBuilder {
 }
 
 func (h *httpClientBuilder) Build() HTTPClient {
-	var stopWg sync.WaitGroup
+	stopWg := new(sync.WaitGroup)
 	h.baseClient.Transport = h.transport
 	h.client.baseClient = h.baseClient
 	h.client.stopWg = stopWg

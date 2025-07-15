@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	urlpkg "net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -109,11 +108,15 @@ func NewRequestBuilder() RequestBuilder {
 }
 
 func (b *requestBuilder) Build() *http.Request {
+	return b.build()
+}
+
+func (b *requestBuilder) build() *http.Request {
 	if b.request.Method == "" {
 		b.request.Method = "GET"
 	}
 	if b.timeout > 0 {
-		return b.request.WithContext(context.WithValue(b.request.Context(), "timeout", b.timeout))
+		b.request = b.request.WithContext(context.WithValue(b.request.Context(), "timeout", b.timeout))
 	}
 	return b.request
 }
@@ -170,16 +173,15 @@ func (b *requestBuilder) StringBody(body string) RequestBuilder {
 
 // Awaitable Response
 type Response struct {
-	Success bool
-	Code    int
-	Header  http.Header // usage just like map, can for each kv or ["headerKey"] gives an array of strings
-	Body    string
-	URI     string
+	Code   int
+	Header http.Header // usage just like map, can for each kv or ["headerKey"] gives an array of strings
+	Body   []byte
+	URI    string
 }
 
 // response util
 func ParseJSONResponseBody[T any](resp *Response) (holder T, err error) {
-	return utils.UnmarshalJSONEntity[T]([]byte(resp.Body))
+	return utils.UnmarshalJSONEntity[T](resp.Body)
 }
 
 func fromRawResponse(resp *http.Response) (*Response, error) {
@@ -187,37 +189,25 @@ func fromRawResponse(resp *http.Response) (*Response, error) {
 	uri := resp.Request.URL.Path
 	statusCode := resp.StatusCode
 	body, err := io.ReadAll(resp.Body)
-	var bodyString string
-	if err != nil {
-		bodyString = err.Error()
-	} else {
-		bodyString = string(body[:])
-	}
-	return &Response{statusCode >= 200 && statusCode <= 300, statusCode, resp.Header, bodyString, uri}, err
-}
-
-// Invalid response builder
-func invalidResponse(status string, statusCode int) *Response {
-	return &Response{false, statusCode, nil, status, ""}
+	return &Response{statusCode, resp.Header, body, uri}, err
 }
 
 type awaitableResponse struct {
 	response *Response
+	err      error
 	cond     *sync.Cond
 	isClosed atomic.Value
 }
 
 type AwaitableResponse interface {
 	Wait()
-	Get() *http.Response
-	Cancel() bool
-	resolve(resp *http.Response)
+	Get() (*Response, error)
 }
 
 func newAwaitableResponse() *awaitableResponse {
 	var isClosed atomic.Value
 	isClosed.Store(false)
-	return &awaitableResponse{nil, sync.NewCond(&sync.Mutex{}), isClosed}
+	return &awaitableResponse{nil, nil, sync.NewCond(&sync.Mutex{}), isClosed}
 }
 
 func (ar *awaitableResponse) Wait() {
@@ -228,9 +218,9 @@ func (ar *awaitableResponse) Wait() {
 	}
 }
 
-func (ar *awaitableResponse) Get() *Response {
+func (ar *awaitableResponse) Get() (*Response, error) {
 	ar.Wait()
-	return ar.response
+	return ar.response, ar.err
 }
 
 func (ar *awaitableResponse) resolve(resp *Response) {
@@ -241,28 +231,26 @@ func (ar *awaitableResponse) resolve(resp *Response) {
 	}
 }
 
-// Trackable Request
-// canceled response
-func cancelledResponse() *Response {
-	return invalidResponse("Cancelled", -4)
+func (ar *awaitableResponse) reject(err error) {
+	if !ar.isClosed.Load().(bool) {
+		ar.err = err
+		ar.cond.Broadcast()
+		ar.isClosed.Store(true)
+	}
 }
+
+// Trackable Request
 
 type trackableRequest struct {
 	id         string
 	cancelFunc func()
-	status     int32
 	request    *http.Request
 	response   *awaitableResponse
 }
 
 type TrackableRequest interface {
 	ID() string
-	Status() int32
-	Update(request *http.Request) error
-	Cancel() error
-	Response() *Response
-	getRequest() *http.Request
-	setStatus(status int32)
+	WaitAndGetResponse() (*Response, error)
 }
 
 func newTrackableRequest(request *http.Request) *trackableRequest {
@@ -276,26 +264,17 @@ func newTrackableRequest(request *http.Request) *trackableRequest {
 		ctx, cancelFunc = context.WithCancel(request.Context())
 	}
 	request = request.WithContext(ctx)
-	id := strconv.FormatInt(randomGenerator.Int63n(time.Now().Unix()), 16)
-	return &trackableRequest{id, cancelFunc, RequestStatusIdle, request, newAwaitableResponse()}
+	id := utils.RandomStringWithSize(12)
+	return &trackableRequest{id, cancelFunc, request, newAwaitableResponse()}
 }
 
 func (tr *trackableRequest) ID() string {
 	return tr.id
 }
 
-func (tr *trackableRequest) Status() int32 {
-	return atomic.LoadInt32(&tr.status)
-}
-
-func (tr *trackableRequest) setStatus(status int32) {
-	atomic.StoreInt32(&tr.status, status)
-}
-
 func (tr *trackableRequest) complete() {
 	// invoke cancel func to relase timeout context timer
 	tr.cancelFunc()
-	tr.setStatus(RequestStatusDone)
 	requestPool.Put(tr.request)
 }
 
@@ -303,26 +282,6 @@ func (tr *trackableRequest) getRequest() *http.Request {
 	return tr.request
 }
 
-func (tr *trackableRequest) Update(request *http.Request) error {
-	status := tr.Status()
-	if status <= RequestStatusWaiting {
-		tr.request = request
-		return nil
-	}
-	return NewClientError("Unable to update request due to "+requestStatusErrorStringMap[status], requestStatusErrorCodeMap[status])
-}
-
-func (tr *trackableRequest) Cancel() error {
-	status := tr.Status()
-	if status < RequestStatusDone {
-		tr.cancelFunc()
-		tr.status = RequestStatusCancelled
-		tr.response.resolve(cancelledResponse())
-		return nil
-	}
-	return NewClientError("Unable to update request due to "+requestStatusErrorStringMap[status], requestStatusErrorCodeMap[status])
-}
-
-func (tr *trackableRequest) Response() *Response {
+func (tr *trackableRequest) WaitAndGetResponse() (*Response, error) {
 	return tr.response.Get()
 }

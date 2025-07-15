@@ -8,16 +8,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dlshle/gommon/errors"
 	"github.com/dlshle/gommon/logging"
 	"github.com/dlshle/gommon/utils"
 )
 
 // TODO, need a customized request capable of retry
-// TODO, Go http client already has connection reusability built-in, so no need to use the producer/consumer pattern here unless request limitation is required
-
-// init
 func init() {
-	initRequestStatusErrorMaps()
 	initPoolStatusStringMap()
 }
 
@@ -32,22 +29,17 @@ type httpClient struct {
 	workerSize  int
 	numWorkers  int32
 	baseClient  *http.Client
-	stopWg      sync.WaitGroup
+	stopWg      *sync.WaitGroup
 	numExceeded int32
 }
 
 type HTTPClient interface {
 	Id() string
-	request(request *http.Request) TrackableRequest
-	DoRequest(request *http.Request) *Response
-	Request(request *http.Request) *Response
-	RequestAsync(request *http.Request) TrackableRequest
-	batchRequest(requests []*http.Request) []TrackableRequest
-	BatchRequest(requests []*http.Request) []*Response
+	DoRequest(request *http.Request) (*Response, error)
+	Request(request *http.Request) (*Response, error)
+	RequestAsync(request *http.Request) AwaitableResponse
 	Verbose(use bool)
-	BatchRequestAsync(requests []*http.Request) []TrackableRequest
 	Status() int
-	setStatus(status int)
 	Stop()
 }
 
@@ -77,7 +69,7 @@ func NewHTTPClient(maxConcurrentRequests, maxQueueSize, timeoutInSec int) HTTPCl
 
 func New(id string, maxConcurrentRequests, maxQueueSize, timeoutInSec int) HTTPClient {
 	ctx, cancelFunc := context.WithCancel(context.Background())
-	var stopWg sync.WaitGroup
+	stopWg := new(sync.WaitGroup)
 	maxConcurrentRequests = numWithinRange(maxConcurrentRequests, 1, 2048)
 	maxQueueSize = numWithinRange(maxQueueSize, 1, 4096)
 	rawClients := make([]*http.Client, maxConcurrentRequests)
@@ -149,16 +141,12 @@ func (c *httpClient) workerFunc(id int) {
 				break
 			}
 			request := req.(*trackableRequest)
-			if request.Status() != RequestStatusWaiting {
-				taggedLogger.Debugf(c.ctx, "skip request(%s) due to invalid status(%d).", request.ID(), request.Status())
+			numRequests++
+			success := c.executeRequest(request)
+			if success {
+				numSuccess++
 			} else {
-				numRequests++
-				success := c.executeRequest(request)
-				if success {
-					numSuccess++
-				} else {
-					numFailed++
-				}
+				numFailed++
 			}
 			if c.pendingRequests() == 0 {
 				shouldContinue = false
@@ -179,23 +167,22 @@ func (c *httpClient) completeWorker() {
 }
 
 func (c *httpClient) executeRequest(request *trackableRequest) (success bool) {
-	request.setStatus(RequestStatusInProgress)
-	c.logger.Debugf(c.ctx, "worker has acquired request(%s, %d) with rawRequest %+v.", request.id, request.Status(), request.getRequest())
+	c.logger.Debugf(c.ctx, "worker has acquired request(%s) with rawRequest %+v.", request.id, request.getRequest())
 	rawResponse, err := c.baseClient.Do(request.getRequest())
-	request.complete()
 	if err != nil || rawResponse == nil {
 		c.logger.Debugf(c.ctx, "request failed due to %s, will resolve it with invalid response(-1).", err.Error())
-		request.response.resolve(invalidResponse("failed: "+err.Error(), -1))
+		request.response.reject(err)
 		success = false
 	} else {
 		response, err := fromRawResponse(rawResponse)
 		if err != nil {
 			c.logger.Debugf(c.ctx, "unable to parse response body of %+v.\n", rawResponse)
+			request.response.reject(err)
 			success = false
 		} else {
+			request.response.resolve(response)
 			success = true
 		}
-		request.response.resolve(response)
 		c.logger.Debugf(c.ctx, "request(%s) has been resolved. Response: %+v.\n", request.id, response)
 	}
 	return
@@ -227,14 +214,14 @@ func (c *httpClient) Status() int {
 	return c.status
 }
 
-func (c *httpClient) request(request *http.Request) TrackableRequest {
-	loggerTag := "[Handle]"
-	c.logger.Debugf(c.ctx, "%s New request received: %+v\nCurrent queue size: %d\n", loggerTag, request, len(c.queue))
+func (c *httpClient) request(request *http.Request) *trackableRequest {
+	c.logger.Debugf(c.ctx, "New request received: %+v\nCurrent queue size: %d\n", request, len(c.queue))
 	tRequest := newTrackableRequest(request)
-	tRequest.setStatus(RequestStatusWaiting)
+	defer tRequest.complete()
 	if c.Status() != PoolStatusRunning {
-		tRequest.response.resolve(invalidResponse("client is closed", -1))
+		tRequest.response.reject(errors.Error("client is closed"))
 		atomic.AddInt32(&c.numExceeded, 1)
+		tRequest.complete()
 		return tRequest
 	}
 	if c.isQueueSizeExceeded() {
@@ -246,45 +233,20 @@ func (c *httpClient) request(request *http.Request) TrackableRequest {
 	return tRequest
 }
 
-func (c *httpClient) DoRequest(request *http.Request) *Response {
+func (c *httpClient) DoRequest(request *http.Request) (*Response, error) {
 	tRequest := newTrackableRequest(request)
-	tRequest.setStatus(RequestStatusWaiting)
+	defer tRequest.complete()
 	c.executeRequest(tRequest)
-	return tRequest.Response()
+	return tRequest.WaitAndGetResponse()
 }
 
-func (c *httpClient) Request(request *http.Request) *Response {
+func (c *httpClient) Request(request *http.Request) (*Response, error) {
 	tr := c.request(request)
-	return tr.Response()
+	return tr.WaitAndGetResponse()
 }
 
-func (c *httpClient) RequestAsync(request *http.Request) TrackableRequest {
-	return c.request(request)
-}
-
-func (c *httpClient) batchRequest(requests []*http.Request) []TrackableRequest {
-	res := make([]TrackableRequest, len(requests))
-	for i, req := range requests {
-		res[i] = c.request(req)
-	}
-	return res
-}
-
-func (c *httpClient) BatchRequest(requests []*http.Request) []*Response {
-	responses := make([]*Response, len(requests))
-	trs := c.batchRequest(requests)
-	for i, tr := range trs {
-		if tr == nil {
-			responses[i] = nil
-		} else {
-			responses[i] = tr.Response()
-		}
-	}
-	return responses
-}
-
-func (c *httpClient) BatchRequestAsync(requests []*http.Request) []TrackableRequest {
-	return c.batchRequest(requests)
+func (c *httpClient) RequestAsync(request *http.Request) AwaitableResponse {
+	return c.request(request).response
 }
 
 func (c *httpClient) Verbose(use bool) {

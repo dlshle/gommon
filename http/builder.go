@@ -13,6 +13,8 @@ import (
 type HTTPClientBuilder interface {
 	Id(id string) HTTPClientBuilder
 	Logger(logger logging.Logger) HTTPClientBuilder
+	AddInterceptor(interceptor Interceptor) HTTPClientBuilder
+	WithInterceptors(interceptors ...Interceptor) HTTPClientBuilder
 	TimeoutSec(timeout int) HTTPClientBuilder
 	MaxConcurrentRequests(n int) HTTPClientBuilder
 	MaxQueueSize(n int) HTTPClientBuilder
@@ -39,6 +41,19 @@ func (h *httpClientBuilder) Logger(logger logging.Logger) HTTPClientBuilder {
 
 func (h *httpClientBuilder) TimeoutSec(timeout int) HTTPClientBuilder {
 	h.baseClient.Timeout = time.Duration(timeout) * time.Second
+	return h
+}
+
+func (h *httpClientBuilder) AddInterceptor(interceptor Interceptor) HTTPClientBuilder {
+	if h.client.interceptors == nil {
+		h.client.interceptors = make([]Interceptor, 0)
+	}
+	h.client.interceptors = append(h.client.interceptors, interceptor)
+	return h
+}
+
+func (h *httpClientBuilder) WithInterceptors(interceptors ...Interceptor) HTTPClientBuilder {
+	h.client.interceptors = interceptors
 	return h
 }
 

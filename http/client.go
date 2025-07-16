@@ -19,18 +19,19 @@ func init() {
 }
 
 type httpClient struct {
-	ctx         context.Context
-	cancelFunc  func()
-	id          string
-	queue       chan TrackableRequest
-	logger      logging.Logger
-	status      int
-	rwMutex     *sync.RWMutex
-	workerSize  int
-	numWorkers  int32
-	baseClient  *http.Client
-	stopWg      *sync.WaitGroup
-	numExceeded int32
+	ctx          context.Context
+	cancelFunc   func()
+	id           string
+	interceptors []Interceptor
+	queue        chan TrackableRequest
+	logger       logging.Logger
+	status       int
+	rwMutex      *sync.RWMutex
+	workerSize   int
+	numWorkers   int32
+	baseClient   *http.Client
+	stopWg       *sync.WaitGroup
+	numExceeded  int32
 }
 
 type HTTPClient interface {
@@ -80,6 +81,7 @@ func New(id string, maxConcurrentRequests, maxQueueSize, timeoutInSec int) HTTPC
 		ctx,
 		cancelFunc,
 		id,
+		[]Interceptor{},
 		make(chan TrackableRequest, maxQueueSize),
 		logging.GlobalLogger.WithPrefix("http-" + id).WithWaterMark(logging.FATAL),
 		PoolStatusIdle,
@@ -168,22 +170,28 @@ func (c *httpClient) completeWorker() {
 
 func (c *httpClient) executeRequest(request *trackableRequest) (success bool) {
 	c.logger.Debugf(c.ctx, "worker has acquired request(%s) with rawRequest %+v.", request.id, request.getRequest())
-	rawResponse, err := c.baseClient.Do(request.getRequest())
-	if err != nil || rawResponse == nil {
-		c.logger.Debugf(c.ctx, "request failed due to %s, will resolve it with invalid response(-1).", err.Error())
+	resp, err := intercept(c.interceptors, request.getRequest(), func(req *Request) (*Response, error) {
+		rawResponse, err := c.baseClient.Do(request.getRequest())
+		if err != nil || rawResponse == nil {
+			c.logger.Debugf(c.ctx, "request failed due to %s, will resolve it with invalid response(-1).", err.Error())
+			return nil, err
+		} else {
+			response, err := fromRawResponse(rawResponse)
+			if err != nil {
+				c.logger.Debugf(c.ctx, "unable to parse response body of %+v.\n", rawResponse)
+				return nil, err
+			} else {
+				return response, nil
+			}
+		}
+	})
+	if err != nil {
 		request.response.reject(err)
 		success = false
 	} else {
-		response, err := fromRawResponse(rawResponse)
-		if err != nil {
-			c.logger.Debugf(c.ctx, "unable to parse response body of %+v.\n", rawResponse)
-			request.response.reject(err)
-			success = false
-		} else {
-			request.response.resolve(response)
-			success = true
-		}
-		c.logger.Debugf(c.ctx, "request(%s) has been resolved. Response: %+v.\n", request.id, response)
+		request.response.resolve(resp)
+		success = true
+		c.logger.Debugf(c.ctx, "request(%s) has been resolved. Response: %+v.\n", request.id, resp)
 	}
 	return
 }

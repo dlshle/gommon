@@ -100,7 +100,7 @@ type RequestBuilder interface {
 }
 
 func NewRequestBuilder() RequestBuilder {
-	req := requestPool.Get().(*http.Request)
+	req := &http.Request{}
 	return &requestBuilder{
 		request: req,
 		timeout: time.Duration(0),
@@ -275,7 +275,8 @@ func (tr *trackableRequest) ID() string {
 func (tr *trackableRequest) complete() {
 	// invoke cancel func to relase timeout context timer
 	tr.cancelFunc()
-	requestPool.Put(tr.request)
+	tr.cancelFunc = nil
+	// requestPool.Put(tr.request)
 }
 
 func (tr *trackableRequest) getRequest() *http.Request {

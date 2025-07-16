@@ -244,7 +244,6 @@ func (c *httpClient) request(request *http.Request) *awaitableResponse {
 
 func (c *httpClient) DoRequest(request *http.Request) (*Response, error) {
 	tRequest := newTrackableRequest(request)
-	defer tRequest.complete()
 	c.executeRequest(tRequest)
 	return tRequest.WaitAndGetResponse()
 }

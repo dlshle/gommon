@@ -169,6 +169,7 @@ func (c *httpClient) completeWorker() {
 }
 
 func (c *httpClient) executeRequest(request *trackableRequest) (success bool) {
+	defer request.complete()
 	c.logger.Debugf(c.ctx, "worker has acquired request(%s) with rawRequest %+v.", request.id, request.getRequest())
 	resp, err := intercept(c.interceptors, request.getRequest(), func(req *Request) (*Response, error) {
 		rawResponse, err := c.baseClient.Do(request.getRequest())
@@ -222,23 +223,23 @@ func (c *httpClient) Status() int {
 	return c.status
 }
 
-func (c *httpClient) request(request *http.Request) *trackableRequest {
+func (c *httpClient) request(request *http.Request) *awaitableResponse {
 	c.logger.Debugf(c.ctx, "New request received: %+v\nCurrent queue size: %d\n", request, len(c.queue))
 	tRequest := newTrackableRequest(request)
-	defer tRequest.complete()
 	if c.Status() != PoolStatusRunning {
 		tRequest.response.reject(errors.Error("client is closed"))
 		atomic.AddInt32(&c.numExceeded, 1)
+		resp := tRequest.response
 		tRequest.complete()
-		return tRequest
+		return resp
 	}
 	if c.isQueueSizeExceeded() {
 		c.executeRequest(tRequest)
-		return tRequest
+		return tRequest.response
 	}
 	c.queue <- tRequest
 	c.tryToStartNewWorker()
-	return tRequest
+	return tRequest.response
 }
 
 func (c *httpClient) DoRequest(request *http.Request) (*Response, error) {
@@ -249,12 +250,11 @@ func (c *httpClient) DoRequest(request *http.Request) (*Response, error) {
 }
 
 func (c *httpClient) Request(request *http.Request) (*Response, error) {
-	tr := c.request(request)
-	return tr.WaitAndGetResponse()
+	return c.request(request).Get()
 }
 
 func (c *httpClient) RequestAsync(request *http.Request) AwaitableResponse {
-	return c.request(request).response
+	return c.request(request)
 }
 
 func (c *httpClient) Verbose(use bool) {

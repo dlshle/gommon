@@ -16,13 +16,16 @@ func WithRetryOptions(options *RetryOptions) RetryOpt {
 	}
 }
 
-func singleRetryOpt(ro *RetryOptions) *RetryOptions {
-	ro.MaxRetries = 1
-	return ro
+func singleBackoffRetryOpt(ro *RetryOptions) *RetryOptions {
+	return &RetryOptions{
+		Backoff:    1,
+		Interval:   ro.Interval,
+		MaxRetries: ro.MaxRetries,
+	}
 }
 
 func Retry(task func() error, opts ...RetryOpt) error {
-	return RetryWithBackoff(task, append(opts, singleRetryOpt)...)
+	return RetryWithBackoff(task, append(opts, singleBackoffRetryOpt)...)
 }
 
 func RetryWithBackoff(task func() error, opts ...RetryOpt) (err error) {
@@ -49,7 +52,7 @@ func RetryWithBackoff(task func() error, opts ...RetryOpt) (err error) {
 }
 
 func Retry1[T any](task func() (T, error), opts ...RetryOpt) (T, error) {
-	return RetryWithBackoff1(task, append(opts, singleRetryOpt)...)
+	return RetryWithBackoff1(task, append(opts, singleBackoffRetryOpt)...)
 }
 
 func RetryWithBackoff1[T any](task func() (T, error), opts ...RetryOpt) (res T, err error) {

@@ -141,24 +141,6 @@ func (w SimpleStringWriter) Write(logEntity *LogEntity) {
 	builder.WriteRune(' ')
 	builder.WriteString(logEntity.File)
 	builder.WriteRune(' ')
-	// contexts
-	contexts := logEntity.Context
-	ctxLen := len(contexts)
-	if ctxLen > 0 {
-		builder.WriteRune(' ')
-		ctxCnt := 0
-		builder.WriteRune('{')
-		for k, v := range contexts {
-			builder.WriteString(k)
-			builder.WriteRune(':')
-			builder.WriteString(v)
-			ctxCnt++
-			if ctxCnt < ctxLen {
-				builder.WriteRune(';')
-			}
-		}
-		builder.WriteString("} ")
-	}
 	builder.WriteString(logEntity.Message)
 	builder.WriteRune('\n')
 	w.consoleWriter.Write(builder.Bytes())

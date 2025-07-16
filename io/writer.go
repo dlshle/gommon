@@ -48,26 +48,27 @@ func (b *bufferedWriter[T]) init() {
 	b.wg.Add(1)
 	buffer := make([]T, 0)
 
-	var tickerChan <-chan time.Time
-	if b.flushDuration > 0 {
-		tickerChan = time.NewTicker(b.flushDuration).C
-	} else {
-		tickerChan = make(<-chan time.Time)
-	}
-
-	flushFunc := func() {
-		if len(buffer) == 0 {
-			return
-		}
-		err := retry.RetryWithBackoff(func() error {
-			return b.flush(buffer)
-		}, retry.WithRetryOptions(b.retryCfg))
-		if err != nil {
-			logging.GlobalLogger.Errorf(b.ctx, "flush error: %v", err)
-		}
-	}
-
 	go func() {
+		var tickerChan <-chan time.Time
+		if b.flushDuration > 0 {
+			ticker := time.NewTicker(b.flushDuration)
+			defer ticker.Stop()
+			tickerChan = ticker.C
+		} else {
+			tickerChan = make(<-chan time.Time)
+		}
+
+		flushFunc := func() {
+			if len(buffer) == 0 {
+				return
+			}
+			err := retry.RetryWithBackoff(func() error {
+				return b.flush(buffer)
+			}, retry.WithRetryOptions(b.retryCfg))
+			if err != nil {
+				logging.GlobalLogger.Errorf(b.ctx, "flush error: %v", err)
+			}
+		}
 		for {
 			select {
 			case <-b.ctx.Done():

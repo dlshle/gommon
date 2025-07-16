@@ -32,7 +32,6 @@ type OpenObserveLoggingConfig struct {
 type OpenObserveWriter struct {
 	ctx            context.Context
 	c              http.HTTPClient
-	t              *time.Ticker
 	streamURL      string
 	hdr            nhttp.Header
 	ch             chan []byte
@@ -44,7 +43,6 @@ func NewOpenObserveWriter(ctx context.Context, cfg *OpenObserveLoggingConfig) lo
 	ow := &OpenObserveWriter{
 		ctx:            ctx,
 		c:              c,
-		t:              time.NewTicker(time.Second * 5),
 		hdr:            http.NewHeaderMaker().Set("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", cfg.Username, cfg.AccessKey))))).Make(),
 		streamURL:      fmt.Sprintf("%s/api/%s/%s/_json", cfg.Host, cfg.Organization, cfg.Stream),
 		ch:             make(chan []byte, 8),
@@ -68,6 +66,8 @@ func (o *OpenObserveWriter) Write(p []byte) (n int, err error) {
 
 func (o *OpenObserveWriter) consumer() {
 	var buffer bytes.Buffer
+	t := time.NewTicker(time.Second * 5)
+	defer t.Stop()
 	buffer.WriteByte('[')
 	flushFn := func(force bool) {
 		if (force && buffer.Len() > 2) || buffer.Len() >= o.flushThreshold {
@@ -83,7 +83,7 @@ func (o *OpenObserveWriter) consumer() {
 		case <-o.ctx.Done():
 			// stop
 			return
-		case <-o.t.C:
+		case <-t.C:
 			// tick
 			flushFn(true)
 		case block := <-o.ch:

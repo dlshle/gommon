@@ -21,12 +21,12 @@ const (
 var consoleLogger = logging.StdOutLevelLogger("[OpenObserveWriter]")
 
 type OpenObserveLoggingConfig struct {
-	Host           string
-	Organization   string
-	Username       string
-	AccessKey      string
-	Stream         string
-	FlushThreshold *int
+	Host           string `json:"host" yaml:"host"`
+	Organization   string `json:"organization" yaml:"organization"`
+	Username       string `json:"username" yaml:"username"`
+	AccessKey      string `json:"accessKey" yaml:"access_key"`
+	Stream         string `json:"stream" yaml:"stream"`
+	FlushThreshold *int    `json:"flushThreshold" yaml:"flush_threshold"`
 }
 
 type OpenObserveWriter struct {

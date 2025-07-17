@@ -51,20 +51,33 @@ func requestToCurl(req *http.Request) (string, error) {
 		}
 	}
 
-	if req.Body != nil {
+	if req.GetBody != nil || req.Body != nil {
 		bodyBuf := new(bytes.Buffer)
-		bodyReader, err := req.GetBody()
-		if err != nil {
-			return "", err
+		var (
+			bodyReader io.ReadCloser = nil
+			err        error         = nil
+		)
+		if req.GetBody != nil {
+			bodyReader, err = req.GetBody()
+			if err != nil {
+				return "", err
+			}
+		} else {
+			// body is not nil
+			bodyReader = req.Body
 		}
-		_, err = bodyBuf.ReadFrom(bodyReader)
-		if err != nil {
-			return "", err
-		}
-		req.Body = io.NopCloser(bytes.NewBuffer(bodyBuf.Bytes()))
-		if bodyBuf.Len() > 0 {
-			bodyStr := strings.ReplaceAll(bodyBuf.String(), "'", "'\\''")
-			curlCmd.WriteString(fmt.Sprintf(" -d '%s'", bodyStr))
+		if bodyReader != nil {
+			_, err = bodyBuf.ReadFrom(bodyReader)
+			if err != nil {
+				return "", err
+			}
+			if req.Body != nil {
+				req.Body = io.NopCloser(bytes.NewBuffer(bodyBuf.Bytes()))
+			}
+			if bodyBuf.Len() > 0 {
+				bodyStr := strings.ReplaceAll(bodyBuf.String(), "'", "'\\''")
+				curlCmd.WriteString(fmt.Sprintf(" -d '%s'", bodyStr))
+			}
 		}
 	}
 

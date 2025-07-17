@@ -14,12 +14,13 @@ import (
 )
 
 type LevelLogger struct {
-	writer            LogWriter
-	prefix            string
-	logLevelWaterMark int
-	context           map[string]string
-	enableGRContext   bool
-	subLoggers        []Logger
+	writer               LogWriter
+	prefix               string
+	logLevelWaterMark    int
+	context              map[string]string
+	enableGRContext      bool
+	subLoggers           []Logger
+	enableAutoStackTrace bool
 }
 
 const LogAllWaterMark = -1
@@ -32,23 +33,25 @@ func StdOutLevelLogger(prefix string) Logger {
 
 func NewLevelLogger(writer io.Writer, prefix string, format int, waterMark int) Logger {
 	return &LevelLogger{
-		writer:            NewConsoleLogWriter(writer),
-		prefix:            prefix,
-		logLevelWaterMark: waterMark,
-		context:           make(map[string]string),
-		enableGRContext:   false,
-		subLoggers:        make([]Logger, 0),
+		writer:               NewConsoleLogWriter(writer),
+		prefix:               prefix,
+		logLevelWaterMark:    waterMark,
+		context:              make(map[string]string),
+		enableGRContext:      false,
+		subLoggers:           make([]Logger, 0),
+		enableAutoStackTrace: false,
 	}
 }
 
 func CreateLevelLogger(entityWriter LogWriter, prefix string, loggingMark int) Logger {
 	return &LevelLogger{
-		writer:            entityWriter,
-		prefix:            prefix,
-		logLevelWaterMark: loggingMark,
-		context:           make(map[string]string),
-		enableGRContext:   true,
-		subLoggers:        make([]Logger, 0),
+		writer:               entityWriter,
+		prefix:               prefix,
+		logLevelWaterMark:    loggingMark,
+		context:              make(map[string]string),
+		enableGRContext:      true,
+		subLoggers:           make([]Logger, 0),
+		enableAutoStackTrace: false,
 	}
 }
 
@@ -171,6 +174,9 @@ func (l *LevelLogger) wrapCtxWithStackTraceIfNotPresent(ctx context.Context, err
 	if err != nil {
 		stacktrace = err.Stacktrace()
 	} else {
+		if !l.enableAutoStackTrace {
+			return ctx
+		}
 		stacktrace = errors.StackTrace(2)
 	}
 	ctx.Value(CtxValLoggingContext)

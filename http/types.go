@@ -152,12 +152,16 @@ func (b *requestBuilder) Header(header http.Header) RequestBuilder {
 }
 
 func (b *requestBuilder) Body(body io.ReadCloser) RequestBuilder {
-	b.request.Body = body
+	b.request.GetBody = func() (io.ReadCloser, error) {
+		return body, nil
+	}
 	return b
 }
 
 func (b *requestBuilder) BytesBody(body []byte) RequestBuilder {
-	b.request.Body = io.NopCloser(bytes.NewBuffer(body))
+	b.request.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewBuffer(body)), nil
+	}
 	return b
 }
 
@@ -167,7 +171,9 @@ func (b *requestBuilder) StringBody(body string) RequestBuilder {
 	if !ok && bodyReader != nil {
 		rc = io.NopCloser(bodyReader)
 	}
-	b.request.Body = rc
+	b.request.GetBody = func() (io.ReadCloser, error) {
+		return rc, nil
+	}
 	return b
 }
 

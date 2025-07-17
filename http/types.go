@@ -125,6 +125,7 @@ func (b *requestBuilder) build() (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+	req.Header = b.header
 	req.GetBody = b.bodyGetter
 	if b.timeout > 0 {
 		req = req.WithContext(context.WithValue(req.Context(), "timeout", b.timeout))

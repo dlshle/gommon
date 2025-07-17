@@ -26,7 +26,7 @@ type OpenObserveLoggingConfig struct {
 	Username       string `json:"username" yaml:"username"`
 	AccessKey      string `json:"accessKey" yaml:"access_key"`
 	Stream         string `json:"stream" yaml:"stream"`
-	FlushThreshold *int    `json:"flushThreshold" yaml:"flush_threshold"`
+	FlushThreshold *int   `json:"flushThreshold" yaml:"flush_threshold"`
 }
 
 type OpenObserveWriter struct {
@@ -98,12 +98,16 @@ func (o *OpenObserveWriter) flush(blocks []byte) {
 	if len(blocks) == 0 {
 		return
 	}
-	req := http.NewRequestBuilder().
+	req, err := http.NewRequestBuilder().
 		Method("POST").
 		URL(o.streamURL).
 		Header(o.hdr).
 		BytesBody(blocks).
 		Build()
+	if err != nil {
+		consoleLogger.Errorf(o.ctx, "failed to build request for open observe dur to %s", err.Error())
+		return
+	}
 	for i := 0; i < 3; i++ {
 		resp, err := o.c.Request(req)
 		if resp != nil && resp.Code == 200 {

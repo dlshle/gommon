@@ -53,7 +53,11 @@ func requestToCurl(req *http.Request) (string, error) {
 
 	if req.Body != nil {
 		bodyBuf := new(bytes.Buffer)
-		_, err := bodyBuf.ReadFrom(req.Body)
+		bodyReader, err := req.GetBody()
+		if err != nil {
+			return "", err
+		}
+		_, err = bodyBuf.ReadFrom(bodyReader)
 		if err != nil {
 			return "", err
 		}

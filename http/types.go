@@ -5,7 +5,6 @@ import (
 	"context"
 	"io"
 	"net/http"
-	urlpkg "net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -81,12 +80,16 @@ func BuildBodyFrom(body string) io.Reader {
 
 // HTTP Request
 type requestBuilder struct {
-	request *http.Request
-	timeout time.Duration
+	ctx        context.Context
+	method     string
+	url        string
+	header     http.Header
+	bodyGetter func() (io.ReadCloser, error)
+	timeout    time.Duration
 }
 
 type RequestBuilder interface {
-	Build() *http.Request
+	Build() (*http.Request, error)
 	Context(ctc context.Context) RequestBuilder
 	// this will set timeout context when the request is handled(not built)
 	// timeout set by this method will not be applied to the net/http http client
@@ -100,25 +103,33 @@ type RequestBuilder interface {
 }
 
 func NewRequestBuilder() RequestBuilder {
-	req := &http.Request{}
 	return &requestBuilder{
-		request: req,
+		method:  "GET",
 		timeout: time.Duration(0),
 	}
 }
 
-func (b *requestBuilder) Build() *http.Request {
+func (b *requestBuilder) Build() (*http.Request, error) {
 	return b.build()
 }
 
-func (b *requestBuilder) build() *http.Request {
-	if b.request.Method == "" {
-		b.request.Method = "GET"
+func (b *requestBuilder) build() (*http.Request, error) {
+	if b.ctx == nil {
+		b.ctx = context.Background()
 	}
+	body, err := b.bodyGetter()
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(b.ctx, strings.ToUpper(b.method), b.url, body)
+	if err != nil {
+		return nil, err
+	}
+	req.GetBody = b.bodyGetter
 	if b.timeout > 0 {
-		b.request = b.request.WithContext(context.WithValue(b.request.Context(), "timeout", b.timeout))
+		req = req.WithContext(context.WithValue(req.Context(), "timeout", b.timeout))
 	}
-	return b.request
+	return req, nil
 }
 
 func (b *requestBuilder) Timeout(timeout time.Duration) RequestBuilder {
@@ -127,39 +138,34 @@ func (b *requestBuilder) Timeout(timeout time.Duration) RequestBuilder {
 }
 
 func (b *requestBuilder) Context(ctx context.Context) RequestBuilder {
-	b.request = b.request.WithContext(ctx)
+	b.ctx = ctx
 	return b
 }
 
 func (b *requestBuilder) Method(method string) RequestBuilder {
-	b.request.Method = strings.ToUpper(method)
+	b.method = strings.ToUpper(method)
 	return b
 }
 
 func (b *requestBuilder) URL(url string) RequestBuilder {
-	u, err := urlpkg.Parse(url)
-	if err != nil {
-		// globalLogger.Printf("Unable to parse url(%s), fallback to original url(%s).\n", url, b.request.URL.String())
-		return b
-	}
-	b.request.URL = u
+	b.url = url
 	return b
 }
 
 func (b *requestBuilder) Header(header http.Header) RequestBuilder {
-	b.request.Header = header
+	b.header = header
 	return b
 }
 
 func (b *requestBuilder) Body(body io.ReadCloser) RequestBuilder {
-	b.request.GetBody = func() (io.ReadCloser, error) {
+	b.bodyGetter = func() (io.ReadCloser, error) {
 		return body, nil
 	}
 	return b
 }
 
 func (b *requestBuilder) BytesBody(body []byte) RequestBuilder {
-	b.request.GetBody = func() (io.ReadCloser, error) {
+	b.bodyGetter = func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewBuffer(body)), nil
 	}
 	return b
@@ -171,7 +177,7 @@ func (b *requestBuilder) StringBody(body string) RequestBuilder {
 	if !ok && bodyReader != nil {
 		rc = io.NopCloser(bodyReader)
 	}
-	b.request.GetBody = func() (io.ReadCloser, error) {
+	b.bodyGetter = func() (io.ReadCloser, error) {
 		return rc, nil
 	}
 	return b

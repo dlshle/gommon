@@ -87,5 +87,8 @@ func ErrorWith(errMsgs ...string) *TrackableError {
 }
 
 func WrapWithStackTrace(err error) *TrackableError {
+	if err == nil {
+		return nil
+	}
 	return newTrackableErr(err, stacktraceWithDepth(DefaultStackDepth, 1))
 }

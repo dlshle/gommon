@@ -16,6 +16,11 @@ func NewMultiError() MultiError {
 }
 
 func MultiErrorWith(err error) MultiError {
+	if err == nil {
+		return &multiError{
+			errors: make([]error, 0),
+		}
+	}
 	return &multiError{
 		errors: []error{err},
 	}
@@ -34,7 +39,9 @@ func (e *multiError) List() []error {
 }
 
 func (e *multiError) Add(err error) {
-	e.errors = append(e.errors, err)
+	if err != nil {
+		e.errors = append(e.errors, err)
+	}
 }
 
 func (e *multiError) Error() string {

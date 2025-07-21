@@ -55,22 +55,32 @@ func loadMigrationScripts(ctx context.Context, path string) ([]*MigrationScript,
 		log.Errorf(ctx, "duplicate migration files detected")
 		return nil, errors.Error("duplicate migration files detected")
 	}
+	// Sort files in ascending order by version
 	sort.Slice(files, func(i, j int) bool {
-		return strings.Compare(files[i], files[j]) >= 0
+		return strings.Compare(files[i], files[j]) < 0
 	})
 	for _, file := range files {
-		fd, err := os.OpenFile(path+"/"+file, os.O_RDONLY, 0644)
+		filePath := path + "/" + file
+		fd, err := os.OpenFile(filePath, os.O_RDONLY, 0644)
 		if err != nil {
 			log.Errorf(ctx, "failed to open file %s due to %s", file, err.Error())
 			return nil, errors.WrapWithStackTrace(err)
 		}
-		version := extractFileVersionByName(fd.Name())
-		// read text from fd
+		defer fd.Close() // Ensure file is closed after reading
+
+		version := extractFileVersionByName(file)
+		if version == "" {
+			log.Errorf(ctx, "failed to extract version from filename %s", file)
+			return nil, errors.Error("invalid migration filename format")
+		}
+
+		// Read text from fd
 		text, err := io.ReadAll(fd)
 		if err != nil {
 			log.Errorf(ctx, "failed to read file %s due to %s", file, err.Error())
 			return nil, errors.WrapWithStackTrace(err)
 		}
+
 		scripts = append(scripts, &MigrationScript{
 			SQL:     string(text),
 			Version: version,
@@ -80,12 +90,12 @@ func loadMigrationScripts(ctx context.Context, path string) ([]*MigrationScript,
 }
 
 func execMigration(ctx context.Context, tx SQLTransactional, scripts []*MigrationScript) error {
-	// sort scripts by name
+	// Sort scripts by version in ascending order
 	sort.Slice(scripts, func(i, j int) bool {
 		return scripts[i].Version < scripts[j].Version
 	})
 
-	// compute hash for scripts
+	// Compute hash for scripts
 	scripts = slices.Map(scripts, func(script *MigrationScript) *MigrationScript {
 		script.hash = computeHash(script.SQL)
 		return script
@@ -102,27 +112,30 @@ func execMigration(ctx context.Context, tx SQLTransactional, scripts []*Migratio
 		return err
 	}
 
-	// execute scripts
+	// Execute scripts
 	for _, script := range scripts {
 		if mig, ok := migrations[script.Version]; ok {
 			if mig.Hash != script.hash {
-				log.Errorf(ctx, "migration hash mismatch for version %s with db hash %s and script hash %s", script.Version, mig.Hash, script.hash)
-				return errors.Error("migration script with version " + mig.Version + " has been modified")
+				log.Errorf(ctx, "migration hash mismatch for version %s with db hash %s and script hash %s",
+					script.Version, mig.Hash, script.hash)
+				return errors.Error("migration script with version " + mig.Version + " has been modified. " +
+					"To resolve this, either revert the changes to the migration file or manually update the hash in the database")
 			}
 			continue
 		}
 		log.Infof(ctx, "executing migration script with version %s", script.Version)
 		_, err := tx.Exec(script.SQL)
 		if err != nil {
-			log.Errorf(ctx, "failed to execute migration script with version %s due to %s", script.Version, err.Error())
-			return err
+			log.Errorf(ctx, "failed to execute migration script with version %s due to %s",
+				script.Version, err.Error())
+			return errors.WrapWithStackTrace(err)
 		}
 	}
 	return nil
 }
 
 func upsertTable(tx SQLTransactional) error {
-	_, err := tx.Exec("CREATE TABLE IF NOT EXISTS migrations (created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, hash VARCHAR(255) NOT NULL, version VARCHAR(255) NOT NULL)")
+	_, err := tx.Exec("CREATE TABLE IF NOT EXISTS migrations (version VARCHAR(255) PRIMARY KEY, hash VARCHAR(255) NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)")
 	return err
 }
 

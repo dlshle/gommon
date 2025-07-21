@@ -34,6 +34,7 @@ type httpClient struct {
 	numExceeded  int32
 }
 
+// deprecated
 type HTTPClient interface {
 	Id() string
 	DoRequest(request *http.Request) (*Response, error)
@@ -43,6 +44,8 @@ type HTTPClient interface {
 	Status() int
 	Stop()
 }
+
+type Client = HTTPClient
 
 func numWithinRange(value, min, max int) int {
 	if value < min {
@@ -64,11 +67,11 @@ func newHTTPClient(timeout int) *http.Client {
 	}
 }
 
-func NewHTTPClient(maxConcurrentRequests, maxQueueSize, timeoutInSec int) HTTPClient {
+func NewHTTPClient(maxConcurrentRequests, maxQueueSize, timeoutInSec int) Client {
 	return New(utils.RandomStringWithSize(5), maxConcurrentRequests, maxQueueSize, timeoutInSec)
 }
 
-func New(id string, maxConcurrentRequests, maxQueueSize, timeoutInSec int) HTTPClient {
+func New(id string, maxConcurrentRequests, maxQueueSize, timeoutInSec int) Client {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	stopWg := new(sync.WaitGroup)
 	maxConcurrentRequests = numWithinRange(maxConcurrentRequests, 1, 2048)

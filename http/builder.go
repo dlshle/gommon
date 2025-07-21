@@ -19,7 +19,7 @@ type HTTPClientBuilder interface {
 	MaxConcurrentRequests(n int) HTTPClientBuilder
 	MaxQueueSize(n int) HTTPClientBuilder
 	MaxConnsPerHost(n int) HTTPClientBuilder
-	Build() HTTPClient
+	Build() Client
 }
 
 type httpClientBuilder struct {
@@ -75,7 +75,7 @@ func (h *httpClientBuilder) MaxConnsPerHost(n int) HTTPClientBuilder {
 	return h
 }
 
-func (h *httpClientBuilder) Build() HTTPClient {
+func (h *httpClientBuilder) Build() Client {
 	stopWg := new(sync.WaitGroup)
 	h.baseClient.Transport = h.transport
 	h.client.baseClient = h.baseClient

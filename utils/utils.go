@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/dlshle/gommon/errors"
 )
 
 var Rando *rand.Rand
@@ -284,4 +287,35 @@ func EncodeJSONString(src string) string {
 	}
 	buf.WriteString(src[start:])
 	return buf.String()
+}
+
+func DiscoverFiles(filePattern string) ([]string, error) {
+	if filePattern == "" {
+		return nil, errors.Error("file pattern is empty")
+	}
+	if !strings.Contains(filePattern, "/") {
+		// prepend current directory
+		filePattern = "." + string(filepath.Separator) + filePattern
+	}
+	return filepath.Glob(filePattern)
+}
+
+// Deduplicate removes duplicates from a slice and tells if the slice contains any duplicate
+func Deduplicate[T comparable](s []T) ([]T, bool) {
+	var (
+		result       []T  = make([]T, 0)
+		hasDuplicate bool = false
+	)
+	m := make(map[T]bool)
+	for _, v := range s {
+		if !m[v] {
+			m[v] = true
+		} else {
+			hasDuplicate = true
+		}
+	}
+	for k := range m {
+		result = append(result, k)
+	}
+	return result, hasDuplicate
 }

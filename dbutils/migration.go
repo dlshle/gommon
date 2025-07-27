@@ -129,6 +129,12 @@ func execMigration(ctx context.Context, tx SQLTransactional, scripts []*Migratio
 				script.Version, err.Error())
 			return errors.WrapWithStackTrace(err)
 		}
+		// Append migration script to migration table
+		if ierr := insertMigrationRecord(tx, script.Version, script.hash); ierr != nil {
+			log.Errorf(ctx, "failed to insert migration record with version %s due to %s",
+				script.Version, err.Error())
+			return errors.WrapWithStackTrace(err)
+		}
 	}
 	return nil
 }
@@ -136,6 +142,14 @@ func execMigration(ctx context.Context, tx SQLTransactional, scripts []*Migratio
 func upsertTable(tx SQLTransactional) error {
 	_, err := tx.Exec("CREATE TABLE IF NOT EXISTS migrations (version VARCHAR(255) PRIMARY KEY, hash VARCHAR(255) NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)")
 	return err
+}
+
+func insertMigrationRecord(tx SQLTransactional, version, hash string) error {
+	_, err := tx.Exec("INSERT INTO migrations (version, hash) VALUES ($1, $2)", version, hash)
+	if err != nil {
+		return errors.WrapWithStackTrace(err)
+	}
+	return nil
 }
 
 func getMigrations(tx SQLTransactional) (map[string]*Migration, error) {

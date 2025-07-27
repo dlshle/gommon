@@ -132,8 +132,8 @@ func execMigration(ctx context.Context, tx SQLTransactional, scripts []*Migratio
 		// Append migration script to migration table
 		if ierr := insertMigrationRecord(tx, script.Version, script.hash); ierr != nil {
 			log.Errorf(ctx, "failed to insert migration record with version %s due to %s",
-				script.Version, err.Error())
-			return errors.WrapWithStackTrace(err)
+				script.Version, ierr.Error())
+			return errors.WrapWithStackTrace(ierr)
 		}
 	}
 	return nil
@@ -145,6 +145,7 @@ func upsertTable(tx SQLTransactional) error {
 }
 
 func insertMigrationRecord(tx SQLTransactional, version, hash string) error {
+	log.Infof(context.Background(), "Inserting migration record for version %s with hash %s", version, hash)
 	_, err := tx.Exec("INSERT INTO migrations (version, hash) VALUES ($1, $2)", version, hash)
 	if err != nil {
 		return errors.WrapWithStackTrace(err)

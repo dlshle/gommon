@@ -1,5 +1,7 @@
 package connection
 
+type ConnectionState int
+
 type Connection interface {
 	ConnectionType() uint8
 	Close() error
@@ -9,17 +11,17 @@ type Connection interface {
 	Address() string
 	OnError(func(error))
 	OnClose(func(error))
-	State() int
+	State() ConnectionState
 	ReadLoop()
 	String() string
 	IsLive() bool
 }
 
 const (
-	StateIdle         = 0
-	StateReading      = 1
-	StateStopping     = 2
-	StateStopped      = 3
-	StateClosing      = 4
-	StateDisconnected = 5
+	StateIdle         ConnectionState = 0
+	StateReading      ConnectionState = 1
+	StateStopping     ConnectionState = 2
+	StateStopped      ConnectionState = 3
+	StateClosing      ConnectionState = 4
+	StateDisconnected ConnectionState = 5
 )

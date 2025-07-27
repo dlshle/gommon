@@ -60,8 +60,7 @@ func loadMigrationScripts(ctx context.Context, path string) ([]*MigrationScript,
 		return strings.Compare(files[i], files[j]) < 0
 	})
 	for _, file := range files {
-		filePath := path + "/" + file
-		fd, err := os.OpenFile(filePath, os.O_RDONLY, 0644)
+		fd, err := os.OpenFile(file, os.O_RDONLY, 0644)
 		if err != nil {
 			log.Errorf(ctx, "failed to open file %s due to %s", file, err.Error())
 			return nil, errors.WrapWithStackTrace(err)

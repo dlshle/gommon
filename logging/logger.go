@@ -101,6 +101,12 @@ type LogEntity struct {
 }
 
 func (e *LogEntity) recycle() {
+	e.Level = 0
+	e.Prefix = ""
+	e.Context = nil
+	e.Timestamp = time.Time{}
+	e.Message = ""
+	e.File = ""
 	logEntityPool.Put(e)
 }
 

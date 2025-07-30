@@ -165,7 +165,9 @@ func StringMapToJSON(s map[string]string) string {
 	for k, v := range s {
 		buffer.WriteRune('"')
 		buffer.WriteString(k)
-		buffer.WriteString("\":\"" + EncodeJSONString(v) + "\"")
+		buffer.WriteString(`":`)
+		vs, _ := json.Marshal(v)
+		buffer.WriteString(string(vs))
 		if counter < l-1 {
 			buffer.WriteRune(',')
 		}

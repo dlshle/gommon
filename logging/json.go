@@ -2,6 +2,7 @@ package logging
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"sync"
 	"time"
@@ -55,9 +56,11 @@ func (w *JSONWriter) getJSONEntityBytes(entity *LogEntity) []byte {
 	buffer.WriteRune(',')
 	w.writeKVPair(buffer, w.quoteWith("level"), w.quoteWith(LogLevelPrefixMap[entity.Level]))
 	buffer.WriteRune(',')
-	w.writeKVPair(buffer, w.quoteWith("prefix"), w.quoteWith(utils.EncodeJSONString(entity.Prefix)))
+	prefixStr, _ := json.Marshal(entity.Prefix)
+	w.writeKVPair(buffer, w.quoteWith("prefix"), string(prefixStr))
 	buffer.WriteRune(',')
-	w.writeKVPair(buffer, w.quoteWith("message"), w.quoteWith(utils.EncodeJSONString(entity.Message)))
+	msgStr, _ := json.Marshal(entity.Message)
+	w.writeKVPair(buffer, w.quoteWith("message"), string(msgStr))
 	buffer.WriteRune(',')
 	w.writeKVPair(buffer, w.quoteWith("context"), utils.StringMapToJSON(entity.Context))
 	buffer.WriteRune('}')

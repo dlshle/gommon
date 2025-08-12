@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -320,4 +321,20 @@ func Deduplicate[T comparable](s []T) ([]T, bool) {
 		result = append(result, k)
 	}
 	return result, hasDuplicate
+}
+
+func IsContextDone(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+func CheckContextDone(ctx context.Context) error {
+	if IsContextDone(ctx) {
+		return errors.Error("context done")
+	}
+	return nil
 }

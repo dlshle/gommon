@@ -75,15 +75,27 @@ func NewPool(maxPoolSize, workerSize int) AsyncPool {
 	return NewAsyncPool("default-"+utils.RandomStringWithSize(5), maxPoolSize, workerSize)
 }
 
+func NewPoolCtx(ctx context.Context, maxPoolSize, workerSize int) AsyncPool {
+	return NewAsyncPoolCtx(ctx, "default-"+utils.RandomStringWithSize(5), maxPoolSize, workerSize)
+}
+
 func NewAsyncPool(id string, maxPoolSize, workerSize int) AsyncPool {
-	ctx, cancel := context.WithCancel(context.Background())
+	return NewAsyncPoolCtx(context.Background(), id, maxPoolSize, workerSize)
+}
+
+func NewAsyncPoolCtx(ctx context.Context, id string, maxPoolSize, workerSize int) AsyncPool {
+	return newAsyncPool(ctx, id, maxPoolSize, workerSize)
+}
+
+func newAsyncPool(ctx context.Context, id string, maxPoolSize, maxWorkerSize int) AsyncPool {
+	ctx, cancel := context.WithCancel(ctx)
 	return &asyncPool{
 		id,
 		ctx,
 		cancel,
 		sync.WaitGroup{},
 		newTaskQueue(),
-		int32(getInRangeInt(workerSize, 2, cpuCount*1024)),
+		int32(getInRangeInt(maxWorkerSize, 2, cpuCount*1024)),
 		0,
 		0,
 		logging.GlobalLogger.WithPrefix("[AsyncPool" + id + "]").WithWaterMark(logging.ERROR),
@@ -123,6 +135,8 @@ func (p *asyncPool) runWorker(index int32) {
 	shouldContinue := true
 	for shouldContinue {
 		select {
+		case <-p.ctx.Done():
+			shouldContinue = false
 		default:
 			task := p.tasks.getTask()
 			// simply take task and work on it sequentially
@@ -135,8 +149,6 @@ func (p *asyncPool) runWorker(index int32) {
 			if p.NumPendingTasks() == 0 {
 				shouldContinue = false
 			}
-		case <-p.ctx.Done():
-			shouldContinue = false
 		}
 	}
 	p.decrementNumStartedWorkers()

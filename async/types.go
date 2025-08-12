@@ -2,6 +2,8 @@ package async
 
 type AsyncTask func()
 
+type TaskFunc func() error
+
 type ComputableAsyncTask func() interface{}
 
 type ComputableAsyncTaskWithError func() (interface{}, error)

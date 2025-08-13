@@ -1,18 +1,5 @@
 package http
 
-import (
-	"net/http"
-	"sync"
-)
-
-var (
-	requestPool sync.Pool = sync.Pool{
-		New: func() any {
-			return &http.Request{}
-		},
-	}
-)
-
 // Pool
 // constants
 const (

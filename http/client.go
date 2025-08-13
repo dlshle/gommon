@@ -123,14 +123,14 @@ func (c *httpClient) isQueueSizeExceeded() bool {
 	return c.pendingRequests() >= c.maxQueueSize()
 }
 
-func (c *httpClient) tryToStartNewWorker() {
+func (c *httpClient) maybeStartNewWorker() {
 	if c.pendingRequests() > 0 && c.workerCount() < c.workerSize {
 		c.stopWg.Add(1)
-		go c.workerFunc(int(c.incrementAndGetWorkerCount()))
+		go c.workerRoutine(int(c.incrementAndGetWorkerCount()))
 	}
 }
 
-func (c *httpClient) workerFunc(id int) {
+func (c *httpClient) workerRoutine(id int) {
 	defer c.completeWorker()
 	numRequests := 0
 	numSuccess := 0
@@ -241,7 +241,7 @@ func (c *httpClient) request(request *http.Request) *awaitableResponse {
 		return tRequest.response
 	}
 	c.queue <- tRequest
-	c.tryToStartNewWorker()
+	c.maybeStartNewWorker()
 	return tRequest.response
 }
 

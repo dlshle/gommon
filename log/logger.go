@@ -8,6 +8,16 @@ import (
 )
 
 // a simplified logging wrapper for logging.GlobalLogger
+var DefaultGlobalLogger logging.Logger
+
+func init() {
+	initializeLoggerWithFixedCallerDepth()
+}
+
+func initializeLoggerWithFixedCallerDepth() {
+	logger, _ := (logging.GlobalLogger.(*logging.DefaultLogger))
+	DefaultGlobalLogger = logger.WithCallerDepth(4)
+}
 
 func Trace(ctx context.Context, records ...string) {
 	logging.GlobalLogger.Trace(ctx, records...)

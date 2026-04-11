@@ -13,7 +13,7 @@ import (
 	"github.com/dlshle/gommon/errors"
 )
 
-type LevelLogger struct {
+type DefaultLogger struct {
 	writer               LogWriter
 	prefix               string
 	logLevelWaterMark    int
@@ -21,18 +21,22 @@ type LevelLogger struct {
 	enableGRContext      bool
 	subLoggers           []Logger
 	enableAutoStackTrace bool
+	callerDepth          int
 }
 
-const LogAllWaterMark = -1
+const (
+	LogAllWaterMark    = -1
+	DefaultCallerDepth = 3
+)
 
 var nilStringBytes = []byte{'n', 'i', 'l'}
 
 func StdOutLevelLogger(prefix string) Logger {
-	return CreateLevelLogger(NewConsoleLogWriter(os.Stdout), prefix, LogAllWaterMark)
+	return CreateDefaultLogger(NewConsoleLogWriter(os.Stdout), prefix, LogAllWaterMark)
 }
 
-func NewLevelLogger(writer io.Writer, prefix string, format int, waterMark int) Logger {
-	return &LevelLogger{
+func NewDefaultLogger(writer io.Writer, prefix string, format int, waterMark int) *DefaultLogger {
+	return &DefaultLogger{
 		writer:               NewConsoleLogWriter(writer),
 		prefix:               prefix,
 		logLevelWaterMark:    waterMark,
@@ -40,11 +44,12 @@ func NewLevelLogger(writer io.Writer, prefix string, format int, waterMark int) 
 		enableGRContext:      false,
 		subLoggers:           make([]Logger, 0),
 		enableAutoStackTrace: false,
+		callerDepth:          DefaultCallerDepth,
 	}
 }
 
-func CreateLevelLogger(entityWriter LogWriter, prefix string, loggingMark int) Logger {
-	return &LevelLogger{
+func CreateDefaultLogger(entityWriter LogWriter, prefix string, loggingMark int) Logger {
+	return &DefaultLogger{
 		writer:               entityWriter,
 		prefix:               prefix,
 		logLevelWaterMark:    loggingMark,
@@ -55,7 +60,7 @@ func CreateLevelLogger(entityWriter LogWriter, prefix string, loggingMark int) L
 	}
 }
 
-func (l *LevelLogger) output(ctx context.Context, level int, data ...string) {
+func (l *DefaultLogger) output(ctx context.Context, level int, data ...string) {
 	if level < l.logLevelWaterMark {
 		return
 	}
@@ -74,8 +79,8 @@ func (l *LevelLogger) output(ctx context.Context, level int, data ...string) {
 	logEntity.recycle()
 }
 
-func (l *LevelLogger) getFileName() string {
-	_, file, line, ok := runtime.Caller(3)
+func (l *DefaultLogger) getFileName() string {
+	_, file, line, ok := runtime.Caller(l.callerDepth)
 	if !ok {
 		file = "???"
 		line = 0
@@ -91,7 +96,7 @@ func (l *LevelLogger) getFileName() string {
 	return file + ":" + strconv.Itoa(line)
 }
 
-func (l *LevelLogger) prepareContext(ctx context.Context) map[string]string {
+func (l *DefaultLogger) prepareContext(ctx context.Context) map[string]string {
 	allContext := make(map[string]string)
 	for k, v := range l.context {
 		allContext[k] = v
@@ -110,63 +115,63 @@ func (l *LevelLogger) prepareContext(ctx context.Context) map[string]string {
 	return allContext
 }
 
-func (l *LevelLogger) Debug(ctx context.Context, records ...string) {
+func (l *DefaultLogger) Debug(ctx context.Context, records ...string) {
 	l.output(ctx, DEBUG, records...)
 }
 
-func (l *LevelLogger) Trace(ctx context.Context, records ...string) {
+func (l *DefaultLogger) Trace(ctx context.Context, records ...string) {
 	l.output(ctx, TRACE, records...)
 }
 
-func (l *LevelLogger) Info(ctx context.Context, records ...string) {
+func (l *DefaultLogger) Info(ctx context.Context, records ...string) {
 	l.output(ctx, INFO, records...)
 }
 
-func (l *LevelLogger) Warn(ctx context.Context, records ...string) {
+func (l *DefaultLogger) Warn(ctx context.Context, records ...string) {
 	l.output(ctx, WARN, records...)
 }
 
-func (l *LevelLogger) Error(ctx context.Context, records ...string) {
+func (l *DefaultLogger) Error(ctx context.Context, records ...string) {
 	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, nil), ERROR, records...)
 }
 
-func (l *LevelLogger) TrackableError(ctx context.Context, err *errors.TrackableError, records ...string) {
+func (l *DefaultLogger) TrackableError(ctx context.Context, err *errors.TrackableError, records ...string) {
 	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, err), ERROR, append(records, err.Error())...)
 }
 
-func (l *LevelLogger) Fatal(ctx context.Context, records ...string) {
+func (l *DefaultLogger) Fatal(ctx context.Context, records ...string) {
 	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, nil), FATAL, records...)
 }
 
-func (l *LevelLogger) Debugf(ctx context.Context, format string, records ...interface{}) {
+func (l *DefaultLogger) Debugf(ctx context.Context, format string, records ...interface{}) {
 	l.output(ctx, DEBUG, fmt.Sprintf(format, records...))
 }
 
-func (l *LevelLogger) Tracef(ctx context.Context, format string, records ...interface{}) {
+func (l *DefaultLogger) Tracef(ctx context.Context, format string, records ...interface{}) {
 	l.output(ctx, TRACE, fmt.Sprintf(format, records...))
 }
 
-func (l *LevelLogger) Infof(ctx context.Context, format string, records ...interface{}) {
+func (l *DefaultLogger) Infof(ctx context.Context, format string, records ...interface{}) {
 	l.output(ctx, INFO, fmt.Sprintf(format, records...))
 }
 
-func (l *LevelLogger) Warnf(ctx context.Context, format string, records ...interface{}) {
+func (l *DefaultLogger) Warnf(ctx context.Context, format string, records ...interface{}) {
 	l.output(ctx, WARN, fmt.Sprintf(format, records...))
 }
 
-func (l *LevelLogger) Errorf(ctx context.Context, format string, records ...interface{}) {
+func (l *DefaultLogger) Errorf(ctx context.Context, format string, records ...interface{}) {
 	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, nil), ERROR, fmt.Sprintf(format, records...))
 }
 
-func (l *LevelLogger) TrackableErrorf(ctx context.Context, err *errors.TrackableError, format string, records ...interface{}) {
+func (l *DefaultLogger) TrackableErrorf(ctx context.Context, err *errors.TrackableError, format string, records ...interface{}) {
 	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, err), ERROR, fmt.Sprintf(format, records...))
 }
 
-func (l *LevelLogger) Fatalf(ctx context.Context, format string, records ...interface{}) {
+func (l *DefaultLogger) Fatalf(ctx context.Context, format string, records ...interface{}) {
 	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, nil), FATAL, fmt.Sprintf(format, records...))
 }
 
-func (l *LevelLogger) wrapCtxWithStackTraceIfNotPresent(ctx context.Context, err *errors.TrackableError) context.Context {
+func (l *DefaultLogger) wrapCtxWithStackTraceIfNotPresent(ctx context.Context, err *errors.TrackableError) context.Context {
 	if ctx != nil {
 		ctx = context.Background()
 	}
@@ -184,34 +189,34 @@ func (l *LevelLogger) wrapCtxWithStackTraceIfNotPresent(ctx context.Context, err
 	return ctx
 }
 
-func (l *LevelLogger) SetContext(k, v string) {
+func (l *DefaultLogger) SetContext(k, v string) {
 	l.context[k] = v
 }
 
-func (l *LevelLogger) DeleteContext(k string) {
+func (l *DefaultLogger) DeleteContext(k string) {
 	delete(l.context, k)
 }
 
-func (l *LevelLogger) Prefix(prefix string) {
+func (l *DefaultLogger) Prefix(prefix string) {
 	l.prefix = prefix
 }
 
-func (l *LevelLogger) PrefixWithPropogate(prefix string) {
+func (l *DefaultLogger) PrefixWithPropogate(prefix string) {
 	l.prefix = prefix
 	for _, subLogger := range l.subLoggers {
 		subLogger.PrefixWithPropogate(prefix)
 	}
 }
 
-func (l *LevelLogger) Format(format int) {
+func (l *DefaultLogger) Format(format int) {
 	// no-op
 }
 
-func (l *LevelLogger) Writer(writer LogWriter) {
+func (l *DefaultLogger) Writer(writer LogWriter) {
 	l.writer = writer
 }
 
-func (l *LevelLogger) WriterWithPropogate(writer LogWriter) {
+func (l *DefaultLogger) WriterWithPropogate(writer LogWriter) {
 	l.writer = writer
 	for _, subLogger := range l.subLoggers {
 		subLogger.WriterWithPropogate(writer)
@@ -219,26 +224,26 @@ func (l *LevelLogger) WriterWithPropogate(writer LogWriter) {
 }
 
 // create new logger
-func (l *LevelLogger) WithPrefix(prefix string) Logger {
-	subLogger := CreateLevelLogger(l.writer, prefix, l.logLevelWaterMark)
+func (l *DefaultLogger) WithPrefix(prefix string) Logger {
+	subLogger := CreateDefaultLogger(l.writer, prefix, l.logLevelWaterMark)
 	l.subLoggers = append(l.subLoggers, subLogger)
 	return subLogger
 }
 
-func (l *LevelLogger) WithFormat(format int) Logger {
-	subLogger := CreateLevelLogger(l.writer, l.prefix, l.logLevelWaterMark)
+func (l *DefaultLogger) WithFormat(format int) Logger {
+	subLogger := CreateDefaultLogger(l.writer, l.prefix, l.logLevelWaterMark)
 	l.subLoggers = append(l.subLoggers, subLogger)
 	return subLogger
 }
 
-func (l *LevelLogger) WithWriter(writer LogWriter) Logger {
-	subLogger := CreateLevelLogger(writer, l.prefix, l.logLevelWaterMark)
+func (l *DefaultLogger) WithWriter(writer LogWriter) Logger {
+	subLogger := CreateDefaultLogger(writer, l.prefix, l.logLevelWaterMark)
 	l.subLoggers = append(l.subLoggers, subLogger)
 	return subLogger
 }
 
-func (l *LevelLogger) WithGRContextLogging(useGRCL bool) Logger {
-	subLogger := &LevelLogger{
+func (l *DefaultLogger) WithGRContextLogging(useGRCL bool) Logger {
+	subLogger := &DefaultLogger{
 		writer:            l.writer,
 		prefix:            l.prefix,
 		logLevelWaterMark: l.logLevelWaterMark,
@@ -250,8 +255,8 @@ func (l *LevelLogger) WithGRContextLogging(useGRCL bool) Logger {
 	return subLogger
 }
 
-func (l *LevelLogger) WithContext(context map[string]string) Logger {
-	subLogger := &LevelLogger{
+func (l *DefaultLogger) WithContext(context map[string]string) Logger {
+	subLogger := &DefaultLogger{
 		writer:            l.writer,
 		prefix:            l.prefix,
 		logLevelWaterMark: l.logLevelWaterMark,
@@ -262,19 +267,19 @@ func (l *LevelLogger) WithContext(context map[string]string) Logger {
 	return subLogger
 }
 
-func (l *LevelLogger) SetWaterMark(waterMark int) {
+func (l *DefaultLogger) SetWaterMark(waterMark int) {
 	l.logLevelWaterMark = waterMark
 }
 
-func (l *LevelLogger) WaterMarkWithPropogate(waterMark int) {
+func (l *DefaultLogger) WaterMarkWithPropogate(waterMark int) {
 	l.logLevelWaterMark = waterMark
 	for _, subLogger := range l.subLoggers {
 		subLogger.WaterMarkWithPropogate(waterMark)
 	}
 }
 
-func (l *LevelLogger) WithWaterMark(waterMark int) Logger {
-	subLogger := &LevelLogger{
+func (l *DefaultLogger) WithWaterMark(waterMark int) Logger {
+	subLogger := &DefaultLogger{
 		writer:            l.writer,
 		prefix:            l.prefix,
 		logLevelWaterMark: waterMark,
@@ -282,5 +287,19 @@ func (l *LevelLogger) WithWaterMark(waterMark int) Logger {
 		subLoggers:        make([]Logger, 0),
 	}
 	l.subLoggers = append(l.subLoggers, subLogger)
+	return subLogger
+}
+
+func (l *DefaultLogger) WithCallerDepth(callerDepth int) Logger {
+	subLogger := &DefaultLogger{
+		writer:               l.writer,
+		prefix:               l.prefix,
+		logLevelWaterMark:    l.logLevelWaterMark,
+		context:              l.context,
+		enableGRContext:      l.enableGRContext,
+		subLoggers:           make([]Logger, 0),
+		enableAutoStackTrace: l.enableAutoStackTrace,
+		callerDepth:          callerDepth,
+	}
 	return subLogger
 }

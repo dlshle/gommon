@@ -21,11 +21,7 @@ func init() {
 	}
 }
 
-var GlobalLogger Logger = CreateLevelLogger(NewConsoleLogWriter(os.Stdout), "", LogAllWaterMark)
-
-func SetLogger(logger Logger) {
-	GlobalLogger = logger
-}
+var GlobalLogger Logger = CreateDefaultLogger(NewConsoleLogWriter(os.Stdout), "", LogAllWaterMark)
 
 const CtxValLoggingContext = "$logging_ctx"
 

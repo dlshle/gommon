@@ -22,11 +22,13 @@ type DefaultLogger struct {
 	subLoggers           []Logger
 	enableAutoStackTrace bool
 	callerDepth          int
+	msgTruncateThreshold int // max size of msg to truncate
 }
 
 const (
-	LogAllWaterMark    = -1
-	DefaultCallerDepth = 3
+	LogAllWaterMark             = -1
+	DefaultCallerDepth          = 3
+	DefaultMsgTruncateThreshold = 1024 * 15 // 15kb
 )
 
 var nilStringBytes = []byte{'n', 'i', 'l'}
@@ -45,6 +47,7 @@ func NewDefaultLogger(writer io.Writer, prefix string, format int, waterMark int
 		subLoggers:           make([]Logger, 0),
 		enableAutoStackTrace: false,
 		callerDepth:          DefaultCallerDepth,
+		msgTruncateThreshold: DefaultMsgTruncateThreshold,
 	}
 }
 
@@ -57,6 +60,21 @@ func CreateDefaultLogger(entityWriter LogWriter, prefix string, loggingMark int)
 		enableGRContext:      true,
 		subLoggers:           make([]Logger, 0),
 		enableAutoStackTrace: false,
+		msgTruncateThreshold: DefaultMsgTruncateThreshold,
+	}
+}
+
+func (l *DefaultLogger) copy() *DefaultLogger {
+	return &DefaultLogger{
+		writer:               l.writer,
+		prefix:               l.prefix,
+		logLevelWaterMark:    l.logLevelWaterMark,
+		context:              l.context,
+		enableGRContext:      l.enableGRContext,
+		subLoggers:           l.subLoggers,
+		enableAutoStackTrace: l.enableAutoStackTrace,
+		callerDepth:          l.callerDepth,
+		msgTruncateThreshold: l.msgTruncateThreshold,
 	}
 }
 
@@ -74,6 +92,7 @@ func (l *DefaultLogger) output(ctx context.Context, level int, data ...string) {
 			builder.WriteString(piece)
 		}
 	}
+	builder.Truncate(l.msgTruncateThreshold)
 	logEntity := newLogEntity(level, l.prefix, l.prepareContext(ctx), time.Now(), builder.String(), l.getFileName())
 	l.writer.Write(logEntity)
 	logEntity.recycle()
@@ -271,6 +290,10 @@ func (l *DefaultLogger) SetWaterMark(waterMark int) {
 	l.logLevelWaterMark = waterMark
 }
 
+func (l *DefaultLogger) SetMessageTruncateThreshold(msgTruncateThreshold int) {
+	l.msgTruncateThreshold = msgTruncateThreshold
+}
+
 func (l *DefaultLogger) WaterMarkWithPropogate(waterMark int) {
 	l.logLevelWaterMark = waterMark
 	for _, subLogger := range l.subLoggers {
@@ -279,27 +302,19 @@ func (l *DefaultLogger) WaterMarkWithPropogate(waterMark int) {
 }
 
 func (l *DefaultLogger) WithWaterMark(waterMark int) Logger {
-	subLogger := &DefaultLogger{
-		writer:            l.writer,
-		prefix:            l.prefix,
-		logLevelWaterMark: waterMark,
-		context:           l.context,
-		subLoggers:        make([]Logger, 0),
-	}
+	subLogger := l.copy()
 	l.subLoggers = append(l.subLoggers, subLogger)
 	return subLogger
 }
 
 func (l *DefaultLogger) WithCallerDepth(callerDepth int) Logger {
-	subLogger := &DefaultLogger{
-		writer:               l.writer,
-		prefix:               l.prefix,
-		logLevelWaterMark:    l.logLevelWaterMark,
-		context:              l.context,
-		enableGRContext:      l.enableGRContext,
-		subLoggers:           make([]Logger, 0),
-		enableAutoStackTrace: l.enableAutoStackTrace,
-		callerDepth:          callerDepth,
-	}
+	subLogger := l.copy()
+	subLogger.callerDepth = callerDepth
+	return subLogger
+}
+
+func (l *DefaultLogger) WithMessageTruncateThreshold(threshold int) Logger {
+	subLogger := l.copy()
+	subLogger.msgTruncateThreshold = threshold
 	return subLogger
 }

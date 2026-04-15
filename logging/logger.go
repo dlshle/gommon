@@ -69,6 +69,7 @@ type Logger interface {
 
 	SetContext(k, v string)
 	SetWaterMark(int)
+	SetMessageTruncateThreshold(threshold int)
 	WaterMarkWithPropogate(int)
 	DeleteContext(k string)
 	Prefix(prefix string)
@@ -85,6 +86,7 @@ type Logger interface {
 	WithContext(context map[string]string) Logger
 	WithGRContextLogging(bool) Logger
 	WithWaterMark(int) Logger
+	WithMessageTruncateThreshold(threshold int) Logger
 }
 
 type LogEntity struct {

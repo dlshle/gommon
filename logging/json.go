@@ -57,10 +57,10 @@ func (w *JSONWriter) getJSONEntityBytes(entity *LogEntity) []byte {
 	w.writeKVPair(buffer, w.quoteWith("level"), w.quoteWith(LogLevelPrefixMap[entity.Level]))
 	buffer.WriteRune(',')
 	prefixStr, _ := json.Marshal(entity.Prefix)
-	w.writeKVPair(buffer, w.quoteWith("prefix"), string(prefixStr))
+	w.writeKVPairWithByteValue(buffer, w.quoteWith("prefix"), prefixStr)
 	buffer.WriteRune(',')
 	msgStr, _ := json.Marshal(entity.Message)
-	w.writeKVPair(buffer, w.quoteWith("message"), string(msgStr))
+	w.writeKVPairWithByteValue(buffer, w.quoteWith("message"), msgStr)
 	buffer.WriteRune(',')
 	w.writeKVPair(buffer, w.quoteWith("context"), utils.StringMapToJSON(entity.Context))
 	buffer.WriteRune('}')
@@ -76,4 +76,10 @@ func (w *JSONWriter) writeKVPair(b *bytes.Buffer, k, v string) {
 	b.WriteString(k)
 	b.WriteRune(':')
 	b.WriteString(v)
+}
+
+func (w *JSONWriter) writeKVPairWithByteValue(b *bytes.Buffer, k string, v []byte) {
+	b.WriteString(k)
+	b.WriteRune(':')
+	b.Write(v)
 }

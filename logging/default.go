@@ -92,7 +92,10 @@ func (l *DefaultLogger) output(ctx context.Context, level int, data ...string) {
 			builder.WriteString(piece)
 		}
 	}
-	builder.Truncate(l.msgTruncateThreshold)
+	if builder.Len() > l.msgTruncateThreshold {
+		builder.Truncate(l.msgTruncateThreshold)
+		builder.WriteString("...")
+	}
 	logEntity := newLogEntity(level, l.prefix, l.prepareContext(ctx), time.Now(), builder.String(), l.getFileName())
 	l.writer.Write(logEntity)
 	logEntity.recycle()

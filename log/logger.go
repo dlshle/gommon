@@ -15,7 +15,7 @@ func init() {
 }
 
 func initializeLoggerWithFixedCallerDepth() {
-	logger, _ := (DefaultGlobalLogger.(*logging.DefaultLogger))
+	logger, _ := (logging.GlobalLogger.(*logging.DefaultLogger))
 	DefaultGlobalLogger = logger.WithCallerDepth(4)
 }
 

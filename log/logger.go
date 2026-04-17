@@ -16,7 +16,7 @@ func init() {
 
 func initializeLoggerWithFixedCallerDepth() {
 	logger, _ := (logging.GlobalLogger.(*logging.DefaultLogger))
-	DefaultGlobalLogger = logger.WithCallerDepth(4)
+	DefaultGlobalLogger = logger.WithCallerDepth(5)
 }
 
 func Trace(ctx context.Context, records ...string) {

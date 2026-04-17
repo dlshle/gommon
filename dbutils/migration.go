@@ -47,9 +47,6 @@ func loadMigrationScripts(ctx context.Context, path string) ([]*MigrationScript,
 	if err != nil {
 		return nil, errors.WrapWithStackTrace(err)
 	}
-	files = slices.Map(files, func(file string) string {
-		return strings.ToLower(file)
-	})
 	files, hasDuplicate = utils.Deduplicate(files)
 	if hasDuplicate {
 		log.Errorf(ctx, "duplicate migration files detected")

@@ -60,6 +60,7 @@ func CreateDefaultLogger(entityWriter LogWriter, prefix string, loggingMark int)
 		enableGRContext:      true,
 		subLoggers:           make([]Logger, 0),
 		enableAutoStackTrace: false,
+		callerDepth:          DefaultCallerDepth,
 		msgTruncateThreshold: DefaultMsgTruncateThreshold,
 	}
 }

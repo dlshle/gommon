@@ -28,23 +28,23 @@ func newTaskQueue() *taskQueue {
 
 func (q *taskQueue) addTask(e AsyncTask) {
 	q.mutex.Lock()
-	if q.size == 0 {
+	if atomic.LoadInt32(&q.size) == 0 {
 		q.head = &taskNode{e, nil}
 		q.tail = q.head
-		q.size += 1
+		atomic.AddInt32(&q.size, 1)
 		q.mutex.Unlock()
 		return
 	}
 	q.tail.next = &taskNode{e, nil}
 	q.tail = q.tail.next
-	q.size += 1
+	atomic.AddInt32(&q.size, 1)
 	q.mutex.Unlock()
 }
 
 func (q *taskQueue) getTask() AsyncTask {
 	var val AsyncTask = nil
 	q.mutex.Lock()
-	if q.size == 0 {
+	if atomic.LoadInt32(&q.size) == 0 {
 		q.mutex.Unlock()
 		return val
 	}
@@ -52,7 +52,7 @@ func (q *taskQueue) getTask() AsyncTask {
 	val = lastHead.t
 	q.head = q.head.next
 	lastHead = nil
-	q.size -= 1
+	atomic.AddInt32(&q.size, -1)
 	q.mutex.Unlock()
 	return val
 }

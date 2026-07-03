@@ -3,12 +3,9 @@ package uri_trie
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/dlshle/gommon/utils"
-)
-
-const (
-	DefaultCompactSize = 15
 )
 
 type MatchContext struct {
@@ -22,44 +19,37 @@ type UriContext struct {
 	params map[string]bool
 }
 
-func parseQueryParams(queryParamString string) (pMap map[string]string, err error) {
-	//xx=1&&yy=2...
-	pMap = make(map[string]string)
+func parseQueryParams(queryParamString string) (map[string]string, error) {
+	pMap := make(map[string]string)
 	if queryParamString == "" {
 		return pMap, nil
 	}
 	exps := strings.Split(queryParamString, "&")
 	for _, exp := range exps {
-		var (
-			key string
-			val string
-		)
-		key, val, err = getSplittedQueryParamStrings(exp)
+		if exp == "" {
+			continue
+		}
+		key, val, err := getSplittedQueryParamStrings(exp)
 		if err != nil {
-			pMap = nil
-			return
+			return nil, err
 		}
 		pMap[key] = val
 	}
-	return
+	return pMap, nil
 }
 
 func getSplittedQueryParamStrings(queryParam string) (string, string, error) {
-	l := len(queryParam)
-	if l < 3 {
-		return "", "", fmt.Errorf("invalid query param(%s) length %d", queryParam, l)
+	if queryParam == "" {
+		return "", "", fmt.Errorf("empty query param")
 	}
-	eqIndx := 0
-	for i, c := range queryParam {
-		if c == '=' {
-			eqIndx = i
-			break
-		}
+	eqIdx := strings.Index(queryParam, "=")
+	if eqIdx == -1 {
+		return "", "", fmt.Errorf("invalid query param %s: missing '='", queryParam)
 	}
-	if eqIndx >= l-1 {
-		return "", "", fmt.Errorf("invalid equal sign query param syntax %s", queryParam)
+	if eqIdx == 0 {
+		return "", "", fmt.Errorf("invalid query param %s: empty key", queryParam)
 	}
-	return queryParam[:eqIndx], queryParam[eqIndx+1:], nil
+	return queryParam[:eqIdx], queryParam[eqIdx+1:], nil
 }
 
 func splitRemaining(remaining string) (string, string) {
@@ -67,7 +57,6 @@ func splitRemaining(remaining string) (string, string) {
 		return "", ""
 	}
 	i := 0
-	// stop until it hits /
 	for i < len(remaining) && remaining[i] != '/' {
 		i++
 	}
@@ -87,36 +76,26 @@ func splitQueryParams(path string) (queries string, remaining string) {
 }
 
 const (
-  tnTypeP  = 0 // param node(e.g. :param)
-	tnTypeW  = 1 // wildcard node
-	tnTypeC  = 2 // constant or literal node
+	tnTypeP = 0 // param node (e.g. :param)
+	tnTypeW = 1 // wildcard node
+	tnTypeC = 2 // constant or literal node
 )
 
 type trieNode struct {
 	parent        *trieNode
-	wildcardChild *trieNode            // *
-	paramChild    *trieNode            // :param
-	constChildren map[string]*trieNode // const
+	wildcardChild *trieNode
+	paramChild    *trieNode
+	constChildren map[string]*trieNode
 	param         string
 	value         interface{}
 	path          string
 	t             uint8
 }
 
-func stringifyConstChildren(node *trieNode) string {
-	var builder strings.Builder
-	for k := range node.constChildren {
-		builder.WriteString(fmt.Sprintf("\"%s\",", k))
-	}
-	return builder.String()[:builder.Len()-1]
-}
-
 func (n *trieNode) addParam(param string) (*trieNode, error) {
-	// we allow adding another param child w/ the same param
 	if n.wildcardChild != nil || (n.paramChild != nil && n.paramChild.param != param) {
 		return nil, fmt.Errorf("can not add a new param node \"%s\" over a wildcard/const node or a param node w/ different param \"%s\"", param, n.param)
 	}
-	// when overriding a child w/ value, do soft add and do not override its value
 	if n.paramChild == nil {
 		n.paramChild = &trieNode{parent: n, param: param, t: tnTypeP}
 	}
@@ -127,7 +106,9 @@ func (n *trieNode) addWildcard(param string) (*trieNode, error) {
 	if (n.wildcardChild != nil && n.wildcardChild.param != param) || n.paramChild != nil {
 		return nil, fmt.Errorf("can not add a new wildcard node \"%s\" over a param/const node or a wildcard node w/ different param \"%s\"", param, n.param)
 	}
-	n.wildcardChild = &trieNode{parent: n, param: param, t: tnTypeW}
+	if n.wildcardChild == nil {
+		n.wildcardChild = &trieNode{parent: n, param: param, t: tnTypeW}
+	}
 	return n.wildcardChild, nil
 }
 
@@ -143,9 +124,15 @@ func (n *trieNode) addConst(subPath string) (*trieNode, error) {
 	return node, nil
 }
 
-func (n *trieNode) addPath(ctx UriContext, path string, value interface{}, override bool) (node *trieNode, err error) {
+func (n *trieNode) addPath(ctx UriContext, path string, value interface{}, override bool) (node *trieNode, isNew bool, err error) {
 	if len(path) == 0 {
-		return
+		if n.value != nil && !override {
+			return n, false, fmt.Errorf("path / has already been taken, please use override=true to replace current value")
+		}
+		isNew = n.value == nil
+		n.value = value
+		n.path = "/"
+		return n, isNew, nil
 	}
 	node = n
 	remaining := path
@@ -154,7 +141,6 @@ func (n *trieNode) addPath(ctx UriContext, path string, value interface{}, overr
 		remaining = remaining[1:]
 		switch token {
 		case ':':
-			// param child
 			var param string
 			param, remaining = splitRemaining(remaining)
 			err = utils.ProcessWithErrors(
@@ -162,6 +148,7 @@ func (n *trieNode) addPath(ctx UriContext, path string, value interface{}, overr
 					if ctx.params[param] {
 						return fmt.Errorf("param %s has already been taken in url %s", param, path)
 					}
+					ctx.params[param] = true
 					return nil
 				},
 				func() error {
@@ -170,71 +157,74 @@ func (n *trieNode) addPath(ctx UriContext, path string, value interface{}, overr
 				},
 			)
 		case '*':
-			// wildcard child(with param)
 			param := remaining
 			remaining = ""
 			node, err = node.addWildcard(param)
 		case '/':
 			node, err = node.addConst("/")
 		default:
-			// constant child
 			var subPath string
 			subPath, remaining = splitRemaining(remaining)
 			subPath = fmt.Sprintf("%c%s", token, subPath)
 			node, err = node.addConst(subPath)
 		}
 		if err != nil {
-			return
+			return nil, false, err
 		}
 	}
 	if node.value != nil && !override {
-		err = fmt.Errorf("path %s has already been taken, please use AddPath(path, Value, true) to override current Value", path)
-	} else {
-		node.value = value
-		node.path = path
+		return node, false, fmt.Errorf("path %s has already been taken, please use override=true to replace current value", path)
 	}
-	return
+	isNew = node.value == nil
+	node.value = value
+	node.path = path
+	return node, isNew, nil
 }
 
-func (n *trieNode) remove() {
-	if n.parent == nil {
+func (n *trieNode) removeFromParent() {
+	if n.parent == nil || n.value != nil {
 		return
 	}
-	if !(n.paramChild == nil || n.wildcardChild == nil || n.constChildren == nil || len(n.constChildren) == 0) {
+	if n.paramChild != nil || n.wildcardChild != nil || len(n.constChildren) > 0 {
 		return
-	} else {
-		// safe to remove, remove current node from its parent
-		n.parent.paramChild = nil
-		n.parent.wildcardChild = nil
-		if n.parent.constChildren != nil {
-			for k, v := range n.parent.constChildren {
-				if v == n {
-					n.parent.constChildren[k] = nil
-				}
+	}
+	parent := n.parent
+	if parent.paramChild == n {
+		parent.paramChild = nil
+	} else if parent.wildcardChild == n {
+		parent.wildcardChild = nil
+	} else if parent.constChildren != nil {
+		for k, v := range parent.constChildren {
+			if v == n {
+				delete(parent.constChildren, k)
+				break
 			}
 		}
 	}
 	n.parent = nil
+	parent.removeFromParent()
 }
 
-// clean from up to bottom
 func (n *trieNode) clean() {
 	if n.paramChild != nil {
 		n.paramChild.clean()
+		n.paramChild = nil
 	}
 	if n.wildcardChild != nil {
 		n.wildcardChild.clean()
+		n.wildcardChild = nil
 	}
 	for k, c := range n.constChildren {
 		c.clean()
 		delete(n.constChildren, k)
 	}
 	n.value = nil
+	n.path = ""
 }
 
 func (n *trieNode) findByPath(path string) *trieNode {
 	if len(path) == 0 {
-		return nil
+		return n
 	}
 	curr := n
 	remaining := path
@@ -250,7 +240,6 @@ func (n *trieNode) findByPath(path string) *trieNode {
 		default:
 			var subPath string
 			subPath, remaining = splitRemaining(remaining)
-			// Match const first. When paths like /a/:x and /a/b both exist, we need to match const path first and then param/wildcard.
 			if tCurr := curr.constChildren[fmt.Sprintf("%c%s", token, subPath)]; tCurr != nil {
 				curr = tCurr
 				continue
@@ -266,9 +255,50 @@ func (n *trieNode) findByPath(path string) *trieNode {
 	return curr
 }
 
+// findPatternNode walks the trie using a route pattern (e.g. "/x/:y/*z")
+// rather than a concrete URI, so it can locate the exact node that Add
+// created for removal.
+func (n *trieNode) findPatternNode(pattern string) *trieNode {
+	if len(pattern) == 0 {
+		return n
+	}
+	curr := n
+	remaining := pattern
+	for len(remaining) > 0 {
+		if curr == nil {
+			return nil
+		}
+		token := remaining[0]
+		remaining = remaining[1:]
+		switch token {
+		case '/':
+			curr = curr.constChildren["/"]
+		case ':':
+			param, rest := splitRemaining(remaining)
+			if curr.paramChild == nil || curr.paramChild.param != param {
+				return nil
+			}
+			curr = curr.paramChild
+			remaining = rest
+		case '*':
+			param := remaining
+			if curr.wildcardChild == nil || curr.wildcardChild.param != param {
+				return nil
+			}
+			return curr.wildcardChild
+		default:
+			var subPath string
+			subPath, remaining = splitRemaining(remaining)
+			subPath = fmt.Sprintf("%c%s", token, subPath)
+			curr = curr.constChildren[subPath]
+		}
+	}
+	return curr
+}
+
 func (n *trieNode) match(path string, ctx *MatchContext) (node *trieNode, err error) {
 	if len(path) == 0 {
-		return nil, fmt.Errorf("no path find")
+		return n, nil
 	}
 	curr := n
 	remaining := path
@@ -287,18 +317,15 @@ func (n *trieNode) match(path string, ctx *MatchContext) (node *trieNode, err er
 			var subPath string
 			subPath, remaining = splitRemaining(remaining)
 			subPath = fmt.Sprintf("%c%s", token, subPath)
-			// Match const first. When paths like /a/:x and /a/b both exist, we need to match const path first and then param/wildcard.
 			if tCurr := curr.constChildren[subPath]; tCurr != nil {
 				curr = tCurr
 				continue
 			}
 			if curr.wildcardChild != nil {
-				// add param
 				ctx.PathParams[curr.wildcardChild.param] = subPath + remaining
 				curr = curr.wildcardChild
 				break
 			} else if curr.paramChild != nil {
-				// add param
 				ctx.PathParams[curr.paramChild.param] = subPath
 				curr = curr.paramChild
 			}
@@ -309,67 +336,47 @@ func (n *trieNode) match(path string, ctx *MatchContext) (node *trieNode, err er
 		ctx.Value = node.value
 		ctx.UriPattern = node.path
 	} else if err == nil {
-		err = fmt.Errorf("no routing found for path " + path)
+		err = fmt.Errorf("no routing found for path %s", path)
 	}
 	return
 }
 
-func (n *trieNode) matchByPath(pathWithoutQueryParams string, ctx *MatchContext) (c *MatchContext, err error) {
+func (n *trieNode) matchByPath(pathWithoutQueryParams string, ctx *MatchContext) (*MatchContext, error) {
 	if len(pathWithoutQueryParams) == 0 {
-		return nil, fmt.Errorf("no path find")
+		if n.value == nil {
+			return nil, fmt.Errorf("no value associated with path /")
+		}
+		ctx.Value = n.value
+		ctx.UriPattern = n.path
+		return ctx, nil
 	}
 	node, err := n.match(pathWithoutQueryParams, ctx)
 	if err != nil || node == nil {
-		return
+		return nil, err
 	}
 	if node.value == nil {
-		return nil, fmt.Errorf("no value associated with path %s" + pathWithoutQueryParams)
+		return nil, fmt.Errorf("no value associated with path %s", pathWithoutQueryParams)
 	}
-	c = ctx
-	return
-}
-
-func (n *trieNode) rPath() (path string, isConst bool) {
-	curr := n
-	isConst = true
-	for curr != nil {
-		if n.t != tnTypeC {
-			isConst = false
-		}
-		if curr.param != "" {
-			if curr != n {
-				path = curr.param + "/" + path
-			} else {
-				path = curr.param
-			}
-		} else if curr.parent != nil {
-			for k, v := range curr.parent.constChildren {
-				if v == curr {
-					if curr != n {
-						path = k + "/" + path
-					} else {
-						path = k
-					}
-				}
-			}
-		}
-		curr = curr.parent
-	}
-	return
+	ctx.Value = node.value
+	ctx.UriPattern = node.path
+	return ctx, nil
 }
 
 type TrieTree struct {
 	root *trieNode
 	size int
+	lock sync.RWMutex
 }
 
 func NewTrieTree() *TrieTree {
 	return &TrieTree{
-		root: &trieNode{parent: nil},
+		root: &trieNode{},
 	}
 }
 
 func (t *TrieTree) Size() int {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
 	return t.size
 }
 
@@ -381,6 +388,8 @@ func (t *TrieTree) Match(path string) (*MatchContext, error) {
 	if path[len(path)-1] == '/' {
 		path = path[:len(path)-1]
 	}
+	t.lock.RLock()
+	defer t.lock.RUnlock()
 	paramStr, remaining := splitQueryParams(path)
 	queryParams, err := parseQueryParams(paramStr)
 	if err != nil {
@@ -398,22 +407,41 @@ func (t *TrieTree) Match(path string) (*MatchContext, error) {
 
 func (t *TrieTree) Add(path string, value interface{}, override bool) error {
 	path = strings.TrimSpace(path)
-	// get rid of the extra /
+	if path == "" {
+		return fmt.Errorf("empty path")
+	}
 	if path[len(path)-1] == '/' {
 		path = path[:len(path)-1]
 	}
-	_, err := t.root.addPath(UriContext{make(map[string]bool)}, path, value, override)
-	t.size++
-	return err
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	_, isNew, err := t.root.addPath(UriContext{make(map[string]bool)}, path, value, override)
+	if err != nil {
+		return err
+	}
+	if isNew {
+		t.size++
+	}
+	return nil
 }
 
 func (t *TrieTree) Remove(path string) bool {
 	path = strings.TrimSpace(path)
-	node := t.root.findByPath(path)
-	if node == nil {
+	if path == "" {
 		return false
 	}
-	node.remove()
+	if path[len(path)-1] == '/' {
+		path = path[:len(path)-1]
+	}
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	node := t.root.findPatternNode(path)
+	if node == nil || node.value == nil {
+		return false
+	}
+	node.value = nil
+	node.path = ""
+	node.removeFromParent()
 	t.size--
 	return true
 }
@@ -426,6 +454,8 @@ func (t *TrieTree) SupportsUri(path string) bool {
 	if path[len(path)-1] == '/' {
 		path = path[:len(path)-1]
 	}
+	t.lock.RLock()
+	defer t.lock.RUnlock()
 	paramStr, remaining := splitQueryParams(path)
 	_, err := parseQueryParams(paramStr)
 	if err != nil {
@@ -439,5 +469,8 @@ func (t *TrieTree) SupportsUri(path string) bool {
 }
 
 func (t *TrieTree) RemoveAll() {
+	t.lock.Lock()
+	defer t.lock.Unlock()
 	t.root.clean()
+	t.size = 0
 }

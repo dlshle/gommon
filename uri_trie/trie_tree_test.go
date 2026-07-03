@@ -1,6 +1,8 @@
 package uri_trie
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	test_utils "github.com/dlshle/gommon/testutils"
@@ -191,6 +193,117 @@ func TestTrieTree(t *testing.T) {
 				return false
 			}
 			return ctx.QueryParams["pageSize"] == "10" && ctx.QueryParams["pageToken"] == "123==xyz="
+		}),
+	}).Do(t)
+}
+
+func TestTrieTreeFixes(t *testing.T) {
+	tree := NewTrieTree()
+	test_utils.NewTestGroup("trie tree fixes", "").Cases([]*test_utils.Assertion{
+		test_utils.NewTestCase("Add root path", "", func() bool {
+			return tree.Add("/", "root", true) == nil && tree.SupportsUri("/")
+		}),
+		test_utils.NewTestCase("Match root path", "", func() bool {
+			ctx, err := tree.Match("/")
+			if err != nil {
+				return false
+			}
+			return ctx.Value.(string) == "root"
+		}),
+		test_utils.NewTestCase("Root path size", "", func() bool {
+			return tree.Size() == 1
+		}),
+		test_utils.NewTestCase("Add root path without override fails", "", func() bool {
+			return tree.Add("/", "root2", false) != nil
+		}),
+		test_utils.NewTestCase("Add and remove const path", "", func() bool {
+			tree.RemoveAll()
+			if tree.Add("/a/b", true, true) != nil {
+				return false
+			}
+			if !tree.SupportsUri("/a/b") {
+				return false
+			}
+			if !tree.Remove("/a/b") {
+				return false
+			}
+			return !tree.SupportsUri("/a/b") && tree.Size() == 0
+		}),
+		test_utils.NewTestCase("Remove intermediate keeps children", "", func() bool {
+			tree.RemoveAll()
+			tree.Add("/a/b", true, true)
+			tree.Add("/a/b/c", true, true)
+			if !tree.Remove("/a/b") {
+				return false
+			}
+			if tree.SupportsUri("/a/b") {
+				return false
+			}
+			return tree.SupportsUri("/a/b/c") && tree.Size() == 1
+		}),
+		test_utils.NewTestCase("Size does not increment on failed add", "", func() bool {
+			tree.RemoveAll()
+			tree.Add("/x", true, true)
+			before := tree.Size()
+			err := tree.Add("/x", false, false)
+			return err != nil && tree.Size() == before
+		}),
+		test_utils.NewTestCase("Size does not increment on override", "", func() bool {
+			tree.RemoveAll()
+			tree.Add("/x", true, true)
+			before := tree.Size()
+			err := tree.Add("/x", false, true)
+			return err == nil && tree.Size() == before
+		}),
+		test_utils.NewTestCase("Query param empty value", "", func() bool {
+			tree.RemoveAll()
+			tree.Add("/projects", true, true)
+			ctx, err := tree.Match("/projects?k=")
+			if err != nil {
+				return false
+			}
+			return ctx.QueryParams["k"] == ""
+		}),
+		test_utils.NewTestCase("Query param empty segment", "", func() bool {
+			ctx, err := tree.Match("/projects?a=1&&b=2")
+			if err != nil {
+				return false
+			}
+			return ctx.QueryParams["a"] == "1" && ctx.QueryParams["b"] == "2"
+		}),
+		test_utils.NewTestCase("Duplicate param name rejected", "", func() bool {
+			tree.RemoveAll()
+			return tree.Add("/x/:a/:a", true, true) != nil
+		}),
+		test_utils.NewTestCase("Concurrent add and match", "", func() bool {
+			tree.RemoveAll()
+			tree.Add("/concurrent/:id", true, true)
+			var wg sync.WaitGroup
+			ok := true
+			var mu sync.Mutex
+			for i := 0; i < 50; i++ {
+				wg.Add(2)
+				go func(i int) {
+					defer wg.Done()
+					err := tree.Add(fmt.Sprintf("/c/%d", i), true, true)
+					if err != nil {
+						mu.Lock()
+						ok = false
+						mu.Unlock()
+					}
+				}(i)
+				go func(i int) {
+					defer wg.Done()
+					_, err := tree.Match(fmt.Sprintf("/concurrent/%d", i))
+					if err != nil {
+						mu.Lock()
+						ok = false
+						mu.Unlock()
+					}
+				}(i)
+			}
+			wg.Wait()
+			return ok
 		}),
 	}).Do(t)
 }

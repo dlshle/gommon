@@ -41,9 +41,11 @@ func (tr *trackableRequest) ID() string {
 }
 
 func (tr *trackableRequest) complete() {
-	// invoke cancel func to relase timeout context timer
-	tr.cancelFunc()
-	tr.cancelFunc = nil
+	// invoke cancel func to release timeout context timer
+	if tr.cancelFunc != nil {
+		tr.cancelFunc()
+		tr.cancelFunc = nil
+	}
 }
 
 func (tr *trackableRequest) getRequest() *http.Request {

@@ -4,7 +4,6 @@ import (
 	"io"
 	"net/http"
 	"sync"
-	"sync/atomic"
 
 	"github.com/dlshle/gommon/utils"
 )
@@ -33,8 +32,8 @@ func fromRawResponse(resp *http.Response) (*Response, error) {
 type awaitableResponse struct {
 	response *Response
 	err      error
-	cond     *sync.Cond
-	isClosed atomic.Value
+	done     chan struct{}
+	once     sync.Once
 }
 
 type AwaitableResponse interface {
@@ -43,36 +42,28 @@ type AwaitableResponse interface {
 }
 
 func newAwaitableResponse() *awaitableResponse {
-	var isClosed atomic.Value
-	isClosed.Store(false)
-	return &awaitableResponse{nil, nil, sync.NewCond(&sync.Mutex{}), isClosed}
+	return &awaitableResponse{done: make(chan struct{})}
 }
 
 func (ar *awaitableResponse) Wait() {
-	if !ar.isClosed.Load().(bool) {
-		ar.cond.L.Lock()
-		ar.cond.Wait()
-		ar.cond.L.Unlock()
-	}
+	<-ar.done
 }
 
 func (ar *awaitableResponse) Get() (*Response, error) {
-	ar.Wait()
+	<-ar.done
 	return ar.response, ar.err
 }
 
 func (ar *awaitableResponse) resolve(resp *Response) {
-	if !ar.isClosed.Load().(bool) {
+	ar.once.Do(func() {
 		ar.response = resp
-		ar.cond.Broadcast()
-		ar.isClosed.Store(true)
-	}
+		close(ar.done)
+	})
 }
 
 func (ar *awaitableResponse) reject(err error) {
-	if !ar.isClosed.Load().(bool) {
+	ar.once.Do(func() {
 		ar.err = err
-		ar.cond.Broadcast()
-		ar.isClosed.Store(true)
-	}
+		close(ar.done)
+	})
 }

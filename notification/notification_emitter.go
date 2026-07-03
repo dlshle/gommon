@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
-	"sync/atomic"
 
 	"github.com/dlshle/gommon/async"
 )
@@ -44,21 +43,13 @@ func (e *notificationEmitter[T]) withWrite(cb func()) {
 	cb()
 }
 
-func (e *notificationEmitter[T]) getMessageListeners(eventID string) []EventListener[T] {
-	e.lock.RLock()
-	defer e.lock.RUnlock()
-	return e.listeners[eventID]
-}
-
 func (e *notificationEmitter[T]) addMessageListener(eventID string, listener EventListener[T]) (err error) {
 	e.withWrite(func() {
 		listeners := e.listeners[eventID]
 		if listeners == nil {
 			listeners = make([]EventListener[T], 0, e.maxNumOfMessageListeners)
 		} else if len(listeners) >= e.maxNumOfMessageListeners {
-			err = fmt.Errorf("listener count exceeded maxMessageListenerCount for event " +
-				eventID +
-				", please use SetMaxMessageListenerCount to top maxMessageListenerCount.")
+			err = fmt.Errorf("listener count exceeded maxMessageListenerCount(%d) for event %s", e.maxNumOfMessageListeners, eventID)
 			return
 		}
 		e.listeners[eventID] = append(listeners, listener)
@@ -66,59 +57,42 @@ func (e *notificationEmitter[T]) addMessageListener(eventID string, listener Eve
 	return
 }
 
-func (e *notificationEmitter[T]) indexOfMessageListener(eventID string, listener EventListener[T]) int {
-	listenerPtr := reflect.ValueOf(listener).Pointer()
+// copyListeners returns a snapshot of the current listeners for the given event.
+// The snapshot is made under the read lock so callers can iterate safely after
+// the lock is released.
+func (e *notificationEmitter[T]) copyListeners(eventID string) []EventListener[T] {
 	e.lock.RLock()
 	defer e.lock.RUnlock()
-	if e.listeners[eventID] == nil {
-		return -1
+	listeners := e.listeners[eventID]
+	if len(listeners) == 0 {
+		return nil
 	}
-	for i, f := range e.listeners[eventID] {
-		currPtr := reflect.ValueOf(f).Pointer()
-		if listenerPtr == currPtr {
-			return i
-		}
-	}
-	return -1
-}
-
-func (e *notificationEmitter[T]) removeIthMessageListener(eventID string, listenerIdx int) {
-	if listenerIdx == -1 || e.MessageListenerCount(eventID) == 0 {
-		return
-	}
-	e.withWrite(func() {
-		allMessageListeners := e.listeners[eventID]
-		if len(allMessageListeners) == 0 {
-			return
-		}
-		if len(allMessageListeners) == 1 {
-			delete(e.listeners, eventID)
-		} else {
-			e.listeners[eventID] = append(allMessageListeners[:listenerIdx], allMessageListeners[listenerIdx+1:]...)
-		}
-	})
+	cpy := make([]EventListener[T], len(listeners))
+	copy(cpy, listeners)
+	return cpy
 }
 
 func (e *notificationEmitter[T]) HasEvent(eventID string) bool {
 	e.lock.RLock()
 	defer e.lock.RUnlock()
-	return e.listeners[eventID] != nil
+	return len(e.listeners[eventID]) > 0
 }
 
 func (e *notificationEmitter[T]) Notify(eventID string, payload T) bool {
-	if !e.HasEvent(eventID) {
+	listeners := e.copyListeners(eventID)
+	if len(listeners) == 0 {
 		return false
 	}
-	e.lock.RLock()
-	listeners := e.listeners[eventID]
-	e.lock.RUnlock()
 	var wg sync.WaitGroup
 	for _, f := range listeners {
 		if f != nil {
 			wg.Add(1)
 			go func(listener EventListener[T]) {
+				defer wg.Done()
+				defer func() {
+					_ = recover()
+				}()
 				listener(payload)
-				wg.Done()
 			}(f)
 		}
 	}
@@ -127,16 +101,15 @@ func (e *notificationEmitter[T]) Notify(eventID string, payload T) bool {
 }
 
 func (e *notificationEmitter[T]) NotifyAsync(eventID string, payload T, executor async.Executor) {
-	if !e.HasEvent(eventID) {
+	listeners := e.copyListeners(eventID)
+	if len(listeners) == 0 {
 		return
 	}
-	e.lock.RLock()
-	listeners := e.listeners[eventID]
-	e.lock.RUnlock()
 	for _, f := range listeners {
 		if f != nil {
+			listener := f
 			executor.Execute(func() {
-				f(payload)
+				listener(payload)
 			})
 		}
 	}
@@ -145,9 +118,6 @@ func (e *notificationEmitter[T]) NotifyAsync(eventID string, payload T, executor
 func (e *notificationEmitter[T]) MessageListenerCount(eventID string) int {
 	e.lock.RLock()
 	defer e.lock.RUnlock()
-	if e.listeners[eventID] == nil {
-		return 0
-	}
 	return len(e.listeners[eventID])
 }
 
@@ -162,45 +132,55 @@ func (e *notificationEmitter[T]) On(eventID string, listener EventListener[T]) (
 }
 
 func (e *notificationEmitter[T]) Once(eventID string, listener EventListener[T]) (Disposable, error) {
-	hasFired := atomic.Value{}
-	hasFired.Store(false)
-	// need this to refer from the actualMessageListener
-	var actualMessageListenerPtr func(T)
-	actualMessageListener := func(param T) {
-		if hasFired.Load().(bool) {
-			e.Off(eventID, actualMessageListenerPtr)
-			return
-		}
-		listener(param)
-		e.Off(eventID, actualMessageListenerPtr)
-		hasFired.Store(true)
+	var once sync.Once
+	var actualMessageListener EventListener[T]
+	actualMessageListener = func(param T) {
+		once.Do(func() {
+			listener(param)
+			e.Off(eventID, actualMessageListener)
+		})
 	}
-	actualMessageListenerPtr = actualMessageListener
-	err := e.addMessageListener(eventID, actualMessageListenerPtr)
+	err := e.addMessageListener(eventID, actualMessageListener)
 	if err != nil {
 		return nil, err
 	}
 	return func() {
-		e.Off(eventID, actualMessageListenerPtr)
-		// manually free two pointers
-		actualMessageListenerPtr = nil
-		actualMessageListener = nil
+		e.Off(eventID, actualMessageListener)
 	}, nil
 }
 
 func (e *notificationEmitter[T]) Off(eventID string, listener EventListener[T]) {
-	if !e.HasEvent(eventID) {
-		return
-	}
-	listenerIdx := e.indexOfMessageListener(eventID, listener)
-	e.removeIthMessageListener(eventID, listenerIdx)
+	e.removeMessageListener(eventID, listener)
 }
 
-func (e *notificationEmitter[T]) OffAll(eventID string) {
-	if !e.HasEvent(eventID) {
+func (e *notificationEmitter[T]) removeMessageListener(eventID string, listener EventListener[T]) {
+	if listener == nil {
 		return
 	}
 	e.withWrite(func() {
-		e.listeners[eventID] = nil
+		listeners := e.listeners[eventID]
+		if len(listeners) == 0 {
+			return
+		}
+		targetPtr := reflect.ValueOf(listener).Pointer()
+		for i, f := range listeners {
+			if f == nil {
+				continue
+			}
+			if reflect.ValueOf(f).Pointer() == targetPtr {
+				if len(listeners) == 1 {
+					delete(e.listeners, eventID)
+				} else {
+					e.listeners[eventID] = append(listeners[:i], listeners[i+1:]...)
+				}
+				return
+			}
+		}
+	})
+}
+
+func (e *notificationEmitter[T]) OffAll(eventID string) {
+	e.withWrite(func() {
+		delete(e.listeners, eventID)
 	})
 }

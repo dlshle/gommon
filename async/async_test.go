@@ -11,7 +11,6 @@ import (
 
 func TestAsyncPool(t *testing.T) {
 	pool := NewAsyncPool("test", 10, 5)
-	pool.Verbose(true)
 	testutils.NewGroup("asyncPool", "").Cases(
 		testutils.New("basic scheduling", func() {
 			b := NewStatefulBarrier()

@@ -1,6 +1,8 @@
 package async
 
 import (
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -66,23 +68,23 @@ func TestFuture(t *testing.T) {
 			return counter == 2 && errCounter == 2
 		}),
 		testutils.NewTestCase("async pool executor single chain with multiple panic and cancellation", "", func() bool {
-			counter := 0
+			var counter atomic.Int32
 			pool := NewAsyncPool("test", 128, 16)
 			incrAndReturnCounter := func(prev interface{}) (interface{}, error) {
-				counter = prev.(int) + 1
-				return counter, nil
+				counter.Store(int32(prev.(int) + 1))
+				return int(counter.Load()), nil
 			}
 			f := NewComputedFuture(func() interface{} {
 				time.Sleep(time.Second * 3)
-				counter++
-				return counter
+				counter.Add(1)
+				return int(counter.Load())
 			}, pool).Then(incrAndReturnCounter)
 			f.Then(incrAndReturnCounter).OnPanic(func(err interface{}) {
 				t.Logf("%v", err)
 			})
 			f.Cancel()
 			t.Logf("started worker: %d", pool.NumStartedWorkers())
-			return counter == 0
+			return counter.Load() == 0
 		}).WithMultiple(10, true).(*testutils.Assertion),
 		testutils.NewTestCase("async pool executor with promised future", "", func() bool {
 			start := time.Now()
@@ -121,9 +123,9 @@ func TestFuture(t *testing.T) {
 				testutils.AssertEquals("failed", "second")
 				return nil, nil
 			}).OnError(func(err error) {
-				testutils.AssertEquals(err.Error(), "mock error")
+				testutils.AssertTrue(strings.Contains(err.Error(), "mock error"))
 			}).Get()
-			testutils.AssertEquals(err.Error(), "mock error")
+			testutils.AssertTrue(strings.Contains(err.Error(), "mock error"))
 			testutils.AssertNil(mappedErr)
 			return true
 		}),
@@ -142,8 +144,9 @@ func TestFuture(t *testing.T) {
 			}).OnError(func(err error) {
 				testutils.AssertNonNil(err)
 			}).MapError(func(err error) interface{} {
-				testutils.AssertEquals(err.Error(), "mock error")
-				return "mapped:" + err.Error()
+				te, ok := err.(*errors.TrackableError)
+				testutils.AssertTrue(ok)
+				return "mapped:" + te.CausingError().Error()
 			}).Get()
 			// since error is mapped, we expect result from mappedErr
 			testutils.AssertNil(err)
@@ -259,9 +262,9 @@ func TestFuture(t *testing.T) {
 			testutils.AssertEquals(f0_1.MustGet().(int), 1)
 			testutils.AssertEquals(f1_2.MustGet().(int), 2)
 			testutils.AssertEquals(f2_3.MustGet().(int), 3)
-			testutils.AssertEquals(f3_err_info.Error(), "f3 error")
+			testutils.AssertTrue(strings.Contains(f3_err_info.Error(), "f3 error"))
 			testutils.AssertNil(f3_1_res)
-			testutils.AssertEquals(f3_1_err_info.Error(), "f3 error")
+			testutils.AssertTrue(strings.Contains(f3_1_err_info.Error(), "f3 error"))
 			testutils.AssertEquals(f0_1_r.(int), 1)
 			testutils.AssertNil(f0_1_e)
 			return true

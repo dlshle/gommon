@@ -1,6 +1,8 @@
 package async
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,66 +13,82 @@ func TestSingleRequest(t *testing.T) {
 	requestGroup := NewRequestGroup()
 	testutils.NewGroup("single request", "").Cases(
 		testutils.NewWithDescription("basic request", "", func() {
-			counter := 0
+			var counter atomic.Int32
 			incr := func() (interface{}, error) {
 				time.Sleep(time.Second)
-				counter++
-				return counter, nil
+				counter.Add(1)
+				return int(counter.Load()), nil
 			}
+			var wg sync.WaitGroup
 			for i := 0; i < 100; i++ {
+				wg.Add(1)
 				go func() {
+					defer wg.Done()
 					requestGroup.Do("incr", incr)
 				}()
 			}
-			result, _ := requestGroup.Do("incr", incr)
-			testutils.AssertEquals(result.(int), counter)
+			wg.Wait()
+			testutils.AssertEquals(int(counter.Load()), 1)
 		}),
 		testutils.NewWithDescription("two continue requests", "", func() {
-			counter := 0
+			var counter atomic.Int32
 			incr := func() (interface{}, error) {
 				time.Sleep(time.Second)
-				counter++
-				return counter, nil
+				counter.Add(1)
+				return int(counter.Load()), nil
 			}
+			var wg sync.WaitGroup
 			for i := 0; i < 100; i++ {
+				wg.Add(1)
 				go func() {
+					defer wg.Done()
 					requestGroup.Do("incr", incr)
 				}()
 			}
-			requestGroup.Do("incr", incr)
+			wg.Wait()
+			testutils.AssertEquals(int(counter.Load()), 1)
+
 			for i := 0; i < 500; i++ {
+				wg.Add(1)
 				go func() {
+					defer wg.Done()
 					requestGroup.Do("incr", incr)
 				}()
 			}
-			result, _ := requestGroup.Do("incr", incr)
-			testutils.AssertEquals(result.(int), counter)
+			wg.Wait()
+			testutils.AssertEquals(int(counter.Load()), 2)
 		}),
 		testutils.NewWithDescription("two separate request", "", func() {
-			counter := 0
-			counter1 := 0
+			var counter atomic.Int32
+			var counter1 atomic.Int32
 			incr := func() (interface{}, error) {
 				time.Sleep(time.Second)
-				counter++
-				return counter, nil
+				counter.Add(1)
+				return int(counter.Load()), nil
 			}
 			incr1 := func() (interface{}, error) {
 				time.Sleep(time.Second)
-				counter1++
-				return counter1, nil
+				counter1.Add(1)
+				return int(counter1.Load()), nil
 			}
+			var wg sync.WaitGroup
 			for i := 0; i < 100; i++ {
+				wg.Add(1)
 				go func() {
+					defer wg.Done()
 					requestGroup.Do("incr", incr)
 				}()
 			}
 			for i := 0; i < 500; i++ {
+				wg.Add(1)
 				go func() {
+					defer wg.Done()
 					requestGroup.Do("incr1", incr1)
 				}()
 			}
-			requestGroup.Do("incr", incr)
-			testutils.AssertEquals(counter, counter1)
+			wg.Wait()
+			testutils.AssertEquals(int(counter.Load()), 1)
+			testutils.AssertEquals(int(counter1.Load()), 1)
 		}),
 	).Do(t)
 }

@@ -31,7 +31,6 @@ type httpClient struct {
 	numWorkers   int32
 	baseClient   *http.Client
 	stopWg       *sync.WaitGroup
-	numExceeded  int32
 }
 
 // deprecated
@@ -57,12 +56,23 @@ func numWithinRange(value, min, max int) int {
 }
 
 func newHTTPClient(timeout int) *http.Client {
-	t := http.DefaultTransport.(*http.Transport).Clone()
+	timeoutDuration := time.Duration(0)
+	if timeout > 0 {
+		timeoutDuration = time.Second * time.Duration(timeout)
+	}
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		// DefaultTransport has been replaced; use it as-is. Connection limits won't be tuned.
+		return &http.Client{
+			Timeout: timeoutDuration,
+		}
+	}
+	t := transport.Clone()
 	t.MaxIdleConns = 100
 	t.MaxConnsPerHost = 100
 	t.MaxIdleConnsPerHost = 100
 	return &http.Client{
-		Timeout:   time.Second * time.Duration(timeout),
+		Timeout:   timeoutDuration,
 		Transport: t,
 	}
 }
@@ -76,91 +86,58 @@ func New(id string, maxConcurrentRequests, maxQueueSize, timeoutInSec int) Clien
 	stopWg := new(sync.WaitGroup)
 	maxConcurrentRequests = numWithinRange(maxConcurrentRequests, 1, 2048)
 	maxQueueSize = numWithinRange(maxQueueSize, 1, 4096)
-	rawClients := make([]*http.Client, maxConcurrentRequests)
-	for i := 0; i < maxConcurrentRequests; i++ {
-		rawClients[i] = newHTTPClient(timeoutInSec)
-	}
 	client := &httpClient{
-		ctx,
-		cancelFunc,
-		id,
-		[]Interceptor{},
-		make(chan TrackableRequest, maxQueueSize),
-		logging.GlobalLogger.WithPrefix("http-" + id).WithWaterMark(logging.FATAL),
-		PoolStatusIdle,
-		new(sync.RWMutex),
-		maxConcurrentRequests,
-		0,
-		newHTTPClient(timeoutInSec),
-		stopWg,
-		0,
+		ctx:          ctx,
+		cancelFunc:   cancelFunc,
+		id:           id,
+		interceptors: []Interceptor{},
+		queue:        make(chan TrackableRequest, maxQueueSize),
+		logger:       logging.GlobalLogger.WithPrefix("http-" + id).WithWaterMark(logging.FATAL),
+		status:       PoolStatusRunning,
+		rwMutex:      new(sync.RWMutex),
+		workerSize:   maxConcurrentRequests,
+		numWorkers:   0,
+		baseClient:   newHTTPClient(timeoutInSec),
+		stopWg:       stopWg,
 	}
-	client.status = PoolStatusRunning
+	client.startWorkers()
 	return client
 }
 
-func (c *httpClient) incrementAndGetWorkerCount() int32 {
-	return atomic.AddInt32(&c.numWorkers, 1)
+func (c *httpClient) startWorkers() {
+	for i := 0; i < c.workerSize; i++ {
+		c.stopWg.Add(1)
+		workerLogger := c.logger.WithPrefix(fmt.Sprintf("[Worker-%d]", i+1))
+		go c.workerRoutine(i+1, workerLogger)
+		atomic.AddInt32(&c.numWorkers, 1)
+	}
 }
 
 func (c *httpClient) decrementWorkerCount() {
 	atomic.AddInt32(&c.numWorkers, -1)
 }
 
-func (c *httpClient) pendingRequests() int {
-	return len(c.queue)
-}
-
-func (c *httpClient) maxQueueSize() int {
-	return cap(c.queue)
-}
-
 func (c *httpClient) workerCount() int {
 	return int(atomic.LoadInt32(&c.numWorkers))
 }
 
-func (c *httpClient) isQueueSizeExceeded() bool {
-	return c.pendingRequests() >= c.maxQueueSize()
-}
-
-func (c *httpClient) maybeStartNewWorker() {
-	if c.pendingRequests() > 0 && c.workerCount() < c.workerSize {
-		c.stopWg.Add(1)
-		go c.workerRoutine(int(c.incrementAndGetWorkerCount()))
-	}
-}
-
-func (c *httpClient) workerRoutine(id int) {
+func (c *httpClient) workerRoutine(id int, logger logging.Logger) {
 	defer c.completeWorker()
-	numRequests := 0
-	numSuccess := 0
-	numFailed := 0
-	taggedLogger := c.logger.WithPrefix(fmt.Sprintf("[Worker-%d]", id))
-	taggedLogger.Debugf(c.ctx, "worker has started.")
-	shouldContinue := true
-	for shouldContinue {
+	logger.Debugf(c.ctx, "worker has started.")
+	for {
 		select {
 		case req, isOpen := <-c.queue:
 			if !isOpen {
-				shouldContinue = false
-				break
+				logger.Debugf(c.ctx, "worker is exiting because queue is closed.")
+				return
 			}
 			request := req.(*trackableRequest)
-			numRequests++
-			success := c.executeRequest(request)
-			if success {
-				numSuccess++
-			} else {
-				numFailed++
-			}
-			if c.pendingRequests() == 0 {
-				shouldContinue = false
-			}
+			c.executeRequest(request, logger)
 		case <-c.ctx.Done():
-			shouldContinue = false
+			logger.Debugf(c.ctx, "worker is exiting because client context is done.")
+			return
 		}
 	}
-	taggedLogger.Debugf(c.ctx, "worker lifecycle is finished, numRequests: %d, numSuccessRequests: %d, numFailedRequests: %d", numRequests, numSuccess, numFailed)
 }
 
 func (c *httpClient) completeWorker() {
@@ -171,23 +148,21 @@ func (c *httpClient) completeWorker() {
 	c.stopWg.Done()
 }
 
-func (c *httpClient) executeRequest(request *trackableRequest) (success bool) {
+func (c *httpClient) executeRequest(request *trackableRequest, logger logging.Logger) (success bool) {
 	defer request.complete()
-	c.logger.Debugf(c.ctx, "worker has acquired request(%s) with rawRequest %+v.", request.id, request.getRequest())
+	logger.Debugf(c.ctx, "worker has acquired request(%s).", request.id)
 	resp, err := intercept(c.interceptors, request.getRequest(), func(req *Request) (*Response, error) {
 		rawResponse, err := c.baseClient.Do(request.getRequest())
-		if err != nil || rawResponse == nil {
-			c.logger.Debugf(c.ctx, "request failed due to %s, will resolve it with invalid response(-1).", err.Error())
+		if err != nil {
+			logger.Debugf(c.ctx, "request(%s) failed: %v", request.id, err)
 			return nil, err
-		} else {
-			response, err := fromRawResponse(rawResponse)
-			if err != nil {
-				c.logger.Debugf(c.ctx, "unable to parse response body of %+v.\n", rawResponse)
-				return nil, err
-			} else {
-				return response, nil
-			}
 		}
+		response, err := fromRawResponse(rawResponse)
+		if err != nil {
+			logger.Debugf(c.ctx, "request(%s) unable to parse response body: %v", request.id, err)
+			return nil, err
+		}
+		return response, nil
 	})
 	if err != nil {
 		request.response.reject(err)
@@ -195,24 +170,31 @@ func (c *httpClient) executeRequest(request *trackableRequest) (success bool) {
 	} else {
 		request.response.resolve(resp)
 		success = true
-		c.logger.Debugf(c.ctx, "request(%s) has been resolved. Response: %+v.\n", request.id, resp)
+		logger.Debugf(c.ctx, "request(%s) has been resolved with code %d.", request.id, resp.Code)
 	}
 	return
 }
 
 func (c *httpClient) Stop() {
-	c.cancelFunc()
-	c.setStatus(PoolStatusTerminating)
+	c.rwMutex.Lock()
+	if c.status != PoolStatusRunning {
+		c.rwMutex.Unlock()
+		return
+	}
+	c.status = PoolStatusTerminating
 	close(c.queue)
+	c.rwMutex.Unlock()
+
 	c.stopWg.Wait()
 	c.setStatus(PoolStatusStopped)
+	c.cancelFunc()
 }
 
 func (c *httpClient) setStatus(status int) {
 	c.rwMutex.Lock()
-	defer c.rwMutex.Unlock()
 	oldStatus := c.status
 	c.status = status
+	c.rwMutex.Unlock()
 	c.logger.Debugf(c.ctx, "Switched pool status from %s to %s\n", poolStatusStringMap[oldStatus], poolStatusStringMap[status])
 }
 
@@ -227,28 +209,27 @@ func (c *httpClient) Status() int {
 }
 
 func (c *httpClient) request(request *http.Request) *awaitableResponse {
-	c.logger.Debugf(c.ctx, "New request received: %+v\nCurrent queue size: %d\n", request, len(c.queue))
 	tRequest := newTrackableRequest(request)
-	if c.Status() != PoolStatusRunning {
+	c.rwMutex.Lock()
+	if c.status != PoolStatusRunning {
+		c.rwMutex.Unlock()
 		tRequest.response.reject(errors.Error("client is closed"))
-		atomic.AddInt32(&c.numExceeded, 1)
-		resp := tRequest.response
 		tRequest.complete()
-		return resp
-	}
-	if c.isQueueSizeExceeded() {
-		c.executeRequest(tRequest)
 		return tRequest.response
 	}
-	c.queue <- tRequest
-	c.maybeStartNewWorker()
+	select {
+	case c.queue <- tRequest:
+		c.rwMutex.Unlock()
+	default:
+		c.rwMutex.Unlock()
+		tRequest.response.reject(errors.Error("request queue is full"))
+		tRequest.complete()
+	}
 	return tRequest.response
 }
 
 func (c *httpClient) DoRequest(request *http.Request) (*Response, error) {
-	tRequest := newTrackableRequest(request)
-	c.executeRequest(tRequest)
-	return tRequest.WaitAndGetResponse()
+	return c.request(request).Get()
 }
 
 func (c *httpClient) Request(request *http.Request) (*Response, error) {

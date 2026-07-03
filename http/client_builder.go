@@ -82,6 +82,7 @@ func (h *httpClientBuilder) Build() Client {
 	h.client.stopWg = stopWg
 	h.client.numWorkers = 0
 	h.client.status = PoolStatusRunning
+	h.client.startWorkers()
 	return h.client
 }
 

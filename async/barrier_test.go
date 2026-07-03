@@ -1,6 +1,7 @@
 package async
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,33 +15,33 @@ func TestBarrier(t *testing.T) {
 			if b.IsOpen() {
 				return false
 			}
-			isOpen := false
+			isOpen := atomic.Bool{}
 			go func() {
 				b.Wait()
-				isOpen = true
+				isOpen.Store(true)
 			}()
 			time.Sleep(time.Millisecond * 1)
-			if isOpen {
+			if isOpen.Load() {
 				return false
 			}
 			b.Open()
 			time.Sleep(time.Millisecond * 1)
-			if !isOpen {
+			if !isOpen.Load() {
 				return false
 			}
 			b.Lock()
-			isOpen = false
+			isOpen.Store(false)
 			go func() {
 				b.Wait()
-				isOpen = true
+				isOpen.Store(true)
 			}()
 			time.Sleep(time.Millisecond * 1)
-			if isOpen {
+			if isOpen.Load() {
 				return false
 			}
 			b.Open()
 			time.Sleep(time.Millisecond * 1)
-			return isOpen
+			return isOpen.Load()
 		}),
 	}).Do(t)
 }

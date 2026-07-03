@@ -10,6 +10,9 @@ import (
 	"github.com/dlshle/gommon/logging"
 )
 
+// CurlInterceptor logs an equivalent curl command for the request before executing it.
+// WARNING: this logs the full request body and headers, which may include sensitive
+// data (credentials, PII, tokens). Use with care in production environments.
 func CurlInterceptor(request *Request, next func(*Request) (*Response, error)) (*Response, error) {
 	curl, err := requestToCurl(request)
 	if err != nil {

@@ -7,39 +7,39 @@ import (
 
 type WaitLock struct {
 	cond   *sync.Cond
-	isOpen atomic.Value
+	isOpen atomic.Bool
 }
 
 func (b *WaitLock) Open() {
-	if !b.IsOpen() {
+	b.cond.L.Lock()
+	if !b.isOpen.Load() {
 		b.isOpen.Store(true)
 		b.cond.Broadcast()
 	}
+	b.cond.L.Unlock()
 }
 
 func (b *WaitLock) Wait() {
-	if b.IsOpen() {
-		return
-	}
 	b.cond.L.Lock()
-	b.cond.Wait()
+	for !b.isOpen.Load() {
+		b.cond.Wait()
+	}
 	b.cond.L.Unlock()
 }
 
 func (b *WaitLock) IsOpen() bool {
-	return b.isOpen.Load().(bool)
+	return b.isOpen.Load()
 }
 
 func (b *WaitLock) Lock() {
-	if b.IsOpen() {
-		b.isOpen.Store(false)
-	}
+	b.cond.L.Lock()
+	b.isOpen.Store(false)
+	b.cond.L.Unlock()
 }
 
 func NewWaitLock() *WaitLock {
 	b := &WaitLock{
-		sync.NewCond(&sync.Mutex{}),
-		atomic.Value{},
+		cond: sync.NewCond(&sync.Mutex{}),
 	}
 	b.isOpen.Store(false)
 	return b

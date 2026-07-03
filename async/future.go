@@ -1,6 +1,7 @@
 package async
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -62,13 +63,14 @@ type Future interface {
 type OptionalParamOperation func(interface{}) interface{}
 
 type future struct {
+	mu             sync.Mutex
 	executor       Executor
 	waitLock       *WaitLock
 	task           ComputableAsyncTaskWithError
 	result         interface{}
 	panicEntity    interface{}
 	errEntity      error
-	isRunning      *atomic.Value
+	isRunning      atomic.Bool
 	prevFuture     *future
 	nextFutures    []*future
 	onPanic        func(interface{})
@@ -95,18 +97,13 @@ func newComputedWithErrorFuture(task ComputableAsyncTaskWithError, executor Exec
 }
 
 func newFuture(task ComputableAsyncTaskWithError, executor Executor, prevFuture *future) *future {
-	isRunning := new(atomic.Value)
-	isRunning.Store(false)
-	f := &future{
+	return &future{
 		prevFuture:     prevFuture,
 		executor:       executor,
 		waitLock:       NewWaitLock(),
 		task:           task,
-		isRunning:      isRunning,
 		propogatePanic: true,
 	}
-	f.isRunning.Store(false)
-	return f
 }
 
 func (f *future) start() *future {
@@ -117,23 +114,23 @@ func (f *future) start() *future {
 }
 
 func (f *future) Cancel() {
-	if f.task == nil || f.isRunning.Load().(bool) || f.waitLock.IsOpen() {
-		// try to cancel later futures
-		f.withNextFutures(func(nextFuture *future) {
-			nextFuture.Cancel()
-		})
+	f.mu.Lock()
+	if f.task == nil || f.isRunning.Load() || f.waitLock.IsOpen() {
+		next := append([]*future(nil), f.nextFutures...)
+		f.mu.Unlock()
+		for _, nf := range next {
+			nf.Cancel()
+		}
 		return
 	}
 	f.executor = DirectExecutor
 	f.task = func() (interface{}, error) {
 		panic(canceledError)
 	}
+	f.mu.Unlock()
 }
 
 func (f *future) Wait() {
-	// if f.executor == DirectExecutor {
-	// return
-	// }
 	f.start()
 	f.waitLock.Wait()
 }
@@ -149,10 +146,15 @@ func (f *future) WaitWithTimeout(duration time.Duration) error {
 func (f *future) Get() (interface{}, error) {
 	f.start()
 	f.waitLock.Wait()
-	if f.panicEntity != nil {
-		panic(f.panicEntity)
+	f.mu.Lock()
+	panicEntity := f.panicEntity
+	result := f.result
+	err := f.errEntity
+	f.mu.Unlock()
+	if panicEntity != nil {
+		panic(panicEntity)
 	}
-	return f.result, f.errEntity
+	return result, err
 }
 
 func (f *future) MustGet() interface{} {
@@ -165,7 +167,15 @@ func (f *future) MustGet() interface{} {
 
 func (f *future) GetWithTimeout(duration time.Duration) (result interface{}, err error) {
 	if f.waitLock.IsOpen() {
-		return f.result, nil
+		f.mu.Lock()
+		result = f.result
+		err = f.errEntity
+		panicEntity := f.panicEntity
+		f.mu.Unlock()
+		if panicEntity != nil {
+			panic(panicEntity)
+		}
+		return
 	}
 	err = RaceTimeoutWithOperation(duration, func() {
 		result, err = f.Get()
@@ -177,8 +187,8 @@ func (f *future) IsDone() bool {
 	return f.waitLock.IsOpen()
 }
 
-func (f *future) ThenWithFuture(future Future) Future {
-	return f.then(f)
+func (f *future) ThenWithFuture(nextFuture Future) Future {
+	return f.then(nextFuture.(*future))
 }
 
 func (f *future) ThenWithExecutor(onComplete func(interface{}) (interface{}, error), executor Executor) Future {
@@ -239,9 +249,13 @@ func (f *future) OnError(onError func(error)) Future {
 }
 
 func (f *future) OnPanic(onPanic func(interface{})) Future {
+	f.mu.Lock()
 	f.onPanic = onPanic
-	if f.IsDone() && f.panicEntity != nil {
-		f.handlePanic(f.panicEntity)
+	panicEntity := f.panicEntity
+	isDone := f.waitLock.IsOpen()
+	f.mu.Unlock()
+	if isDone && panicEntity != nil {
+		f.handlePanic(panicEntity)
 	}
 	return f
 }
@@ -257,7 +271,9 @@ func (f *future) MapError(mappingFn func(error) interface{}) Future {
 }
 
 func (f *future) MapPanic(mappingFn func(interface{}) interface{}) Future {
+	f.mu.Lock()
 	f.propogatePanic = false
+	f.mu.Unlock()
 	return f.OnPanic(func(recovered interface{}) {
 		f.acceptResult(mappingFn(recovered))
 	})
@@ -274,33 +290,39 @@ func (f *future) assembleNextTask(onSuccess func(interface{}) (interface{}, erro
 }
 
 func (f *future) then(nextFuture *future) Future {
-	f.appendFuture(nextFuture)
+	f.mu.Lock()
+	f.nextFutures = append(f.nextFutures, nextFuture)
 	nextFuture.prevFuture = f
-	// if current future isn't started, start it
-	if !f.isRunning.Load().(bool) && !f.IsDone() {
+	isDone := f.waitLock.IsOpen()
+	hasPanic := f.panicEntity != nil
+	panicEntity := f.panicEntity
+	isRunning := f.isRunning.Load()
+	f.mu.Unlock()
+
+	if !isRunning && !isDone {
 		f.start()
 		return nextFuture
 	}
-	if f.IsDone() {
-		if f.panicEntity != nil {
-			f.notifyAndPropagatePanicChain(f.panicEntity)
+	if isDone {
+		if hasPanic {
+			nextFuture.handlePanic(panicEntity)
 		} else {
-			f.notifyAndRunNext()
+			nextFuture.run()
 		}
 	}
 	return nextFuture
 }
 
-func (f *future) appendFuture(nextFuture *future) {
-	f.nextFutures = append(f.nextFutures, nextFuture)
-}
-
 func (f *future) run() *future {
-	if f.isRunning.Load().(bool) || f.IsDone() {
+	f.mu.Lock()
+	if f.isRunning.Load() || f.waitLock.IsOpen() {
+		f.mu.Unlock()
 		return f
 	}
 	f.isRunning.Store(true)
-	f.executor.Execute(f.execute)
+	executor := f.executor
+	f.mu.Unlock()
+	executor.Execute(f.execute)
 	return f
 }
 
@@ -310,8 +332,11 @@ func (f *future) execute() {
 			f.acceptPanic(recovered)
 		}
 	}()
-	if !(f.task == nil && f.result == nil && f.panicEntity == nil && !f.isRunning.Load().(bool)) {
-		result, err := f.task()
+	f.mu.Lock()
+	task := f.task
+	f.mu.Unlock()
+	if task != nil {
+		result, err := task()
 		if err != nil {
 			f.acceptError(err)
 		} else if result != nil {
@@ -321,62 +346,75 @@ func (f *future) execute() {
 }
 
 func (f *future) acceptResult(result interface{}) {
-	if result == nil || f.result != nil {
+	if result == nil {
+		return
+	}
+	f.mu.Lock()
+	if f.result != nil {
+		f.mu.Unlock()
 		return
 	}
 	f.result = result
-	f.notifyAndRunNext()
+	next := append([]*future(nil), f.nextFutures...)
+	f.mu.Unlock()
+	f.openWaitLockAndStopRunning()
+	f.runNextFutures(next)
 }
 
 func (f *future) acceptError(err error) {
-	if err == nil || f.errEntity != nil {
+	if err == nil {
+		return
+	}
+	f.mu.Lock()
+	if f.errEntity != nil {
+		f.mu.Unlock()
 		return
 	}
 	f.errEntity = err
-	f.notifyAndRunNext()
+	next := append([]*future(nil), f.nextFutures...)
+	f.mu.Unlock()
+	f.openWaitLockAndStopRunning()
+	f.runNextFutures(next)
 }
 
 func (f *future) acceptPanic(recovered interface{}) {
-	if recovered == nil || f.panicEntity != nil {
+	if recovered == nil {
+		return
+	}
+	f.mu.Lock()
+	if f.panicEntity != nil {
+		f.mu.Unlock()
 		return
 	}
 	f.panicEntity = recovered
+	f.mu.Unlock()
 	f.handlePanic(recovered)
 }
 
 func (f *future) handlePanic(recovered interface{}) {
-	if f.onPanic != nil {
-		f.onPanic(recovered)
+	f.mu.Lock()
+	onPanic := f.onPanic
+	propagate := f.propogatePanic
+	next := append([]*future(nil), f.nextFutures...)
+	f.mu.Unlock()
+	if onPanic != nil {
+		onPanic(recovered)
 	}
-	f.notifyAndPropagatePanicChain(recovered)
-}
-
-func (f *future) withNextFutures(cb func(f *future)) {
-	if len(f.nextFutures) == 0 {
-		return
-	}
-	for _, nf := range f.nextFutures {
-		cb(nf)
-	}
-}
-
-func (f *future) notifyAndRunNext() {
 	f.openWaitLockAndStopRunning()
-	f.withNextFutures(func(nextFuture *future) {
-		if !nextFuture.isRunning.Load().(bool) {
-			nextFuture.run()
-		}
-	})
-}
-
-func (f *future) notifyAndPropagatePanicChain(recovered interface{}) {
-	f.openWaitLockAndStopRunning()
-	if f.propogatePanic {
-		f.withNextFutures(func(nextFuture *future) {
-			if !nextFuture.isRunning.Load().(bool) {
-				nextFuture.handlePanic(recovered)
+	if propagate {
+		for _, nf := range next {
+			if !nf.isRunning.Load() {
+				nf.handlePanic(recovered)
 			}
-		})
+		}
+	}
+}
+
+func (f *future) runNextFutures(next []*future) {
+	for _, nf := range next {
+		if !nf.isRunning.Load() {
+			nf.run()
+		}
 	}
 }
 
@@ -404,6 +442,7 @@ func NewComputedErrorReturningFuture(task ComputableAsyncTaskWithError, executor
 
 func newPromisedFuture(resolver func(ResultAcceptor, ErrorAcceptor), executor Executor, prevFuture *future, immediateRun bool) *future {
 	f := newFuture(nil, executor, prevFuture)
+	f.mu.Lock()
 	f.task = func() (_ interface{}, _ error) {
 		resolver(func(computedResult interface{}) {
 			f.acceptResult(computedResult)
@@ -412,6 +451,7 @@ func newPromisedFuture(resolver func(ResultAcceptor, ErrorAcceptor), executor Ex
 		})
 		return
 	}
+	f.mu.Unlock()
 	// promised future should automatically start on creation
 	if immediateRun {
 		return f.run()
@@ -437,10 +477,13 @@ func IsCanceled(f Future) bool {
 		return false
 	}
 	rawFuture := f.(*future)
-	if rawFuture.panicEntity == nil {
+	rawFuture.mu.Lock()
+	panicEntity := rawFuture.panicEntity
+	rawFuture.mu.Unlock()
+	if panicEntity == nil {
 		return false
 	}
-	return rawFuture.panicEntity == canceledError
+	return panicEntity == canceledError
 }
 
 func WhenAllCompleted(futures ...Future) Future {

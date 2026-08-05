@@ -19,89 +19,136 @@ type HTTPClientBuilder interface {
 	MaxConcurrentRequests(n int) HTTPClientBuilder
 	MaxQueueSize(n int) HTTPClientBuilder
 	MaxConnsPerHost(n int) HTTPClientBuilder
+	MaxResponseBodySize(n int64) HTTPClientBuilder
 	Build() Client
 }
 
 type httpClientBuilder struct {
-	transport  *http.Transport
-	baseClient *http.Client
-	client     *httpClient
+	id                    string
+	logger                logging.Logger
+	customLogger          bool
+	interceptors          []Interceptor
+	timeout               time.Duration
+	maxConcurrentRequests int
+	maxQueueSize          int
+	maxConnsPerHost       int
+	maxResponseBodySize   int64
+	transport             *http.Transport
 }
 
 func (h *httpClientBuilder) Id(id string) HTTPClientBuilder {
-	h.client.id = id
-	h.client.logger.Prefix(id)
+	h.id = id
 	return h
 }
 
 func (h *httpClientBuilder) Logger(logger logging.Logger) HTTPClientBuilder {
-	h.client.logger = logger
+	h.logger = logger
+	h.customLogger = true
 	return h
 }
 
 func (h *httpClientBuilder) TimeoutSec(timeout int) HTTPClientBuilder {
-	h.baseClient.Timeout = time.Duration(timeout) * time.Second
+	if timeout < 0 {
+		timeout = 0
+	}
+	h.timeout = time.Duration(timeout) * time.Second
 	return h
 }
 
 func (h *httpClientBuilder) AddInterceptor(interceptor Interceptor) HTTPClientBuilder {
-	if h.client.interceptors == nil {
-		h.client.interceptors = make([]Interceptor, 0)
+	if h.interceptors == nil {
+		h.interceptors = make([]Interceptor, 0)
 	}
-	h.client.interceptors = append(h.client.interceptors, interceptor)
+	h.interceptors = append(h.interceptors, interceptor)
 	return h
 }
 
 func (h *httpClientBuilder) WithInterceptors(interceptors ...Interceptor) HTTPClientBuilder {
-	h.client.interceptors = interceptors
+	h.interceptors = interceptors
 	return h
 }
 
 func (h *httpClientBuilder) MaxConcurrentRequests(n int) HTTPClientBuilder {
-	h.client.workerSize = numWithinRange(n, 1, runtime.NumCPU()*32)
+	h.maxConcurrentRequests = n
 	return h
 }
 
 func (h *httpClientBuilder) MaxQueueSize(n int) HTTPClientBuilder {
-	h.client.queue = make(chan TrackableRequest, numWithinRange(n, 1, runtime.NumCPU()*64))
+	h.maxQueueSize = n
 	return h
 }
 
 func (h *httpClientBuilder) MaxConnsPerHost(n int) HTTPClientBuilder {
-	numMaxConnsPerHost := numWithinRange(n, 1, runtime.NumCPU()*8)
-	h.transport.MaxConnsPerHost = numMaxConnsPerHost
-	h.transport.MaxIdleConnsPerHost = numMaxConnsPerHost
-	h.transport.MaxIdleConns = numMaxConnsPerHost
+	h.maxConnsPerHost = n
+	return h
+}
+
+func (h *httpClientBuilder) MaxResponseBodySize(n int64) HTTPClientBuilder {
+	h.maxResponseBodySize = n
 	return h
 }
 
 func (h *httpClientBuilder) Build() Client {
-	stopWg := new(sync.WaitGroup)
-	h.baseClient.Transport = h.transport
-	h.client.baseClient = h.baseClient
-	h.client.stopWg = stopWg
-	h.client.numWorkers = 0
-	h.client.status = PoolStatusRunning
-	h.client.startWorkers()
-	return h.client
+	ctx, cancelFunc := context.WithCancel(context.Background())
+
+	queueSize := numWithinRange(h.maxQueueSize, 1, runtime.NumCPU()*64)
+	workerSize := numWithinRange(h.maxConcurrentRequests, 1, runtime.NumCPU()*32)
+	numMaxConnsPerHost := numWithinRange(h.maxConnsPerHost, 1, runtime.NumCPU()*8)
+
+	transport := h.transport.Clone()
+	transport.MaxConnsPerHost = numMaxConnsPerHost
+	transport.MaxIdleConnsPerHost = numMaxConnsPerHost
+	transport.MaxIdleConns = numMaxConnsPerHost
+
+	baseClient := &http.Client{
+		Timeout:   h.timeout,
+		Transport: transport,
+	}
+
+	logger := h.logger
+	if !h.customLogger {
+		logger = logging.GlobalLogger.WithPrefix(h.id)
+	}
+
+	client := &httpClient{
+		ctx:                 ctx,
+		cancelFunc:          cancelFunc,
+		id:                  h.id,
+		interceptors:        append([]Interceptor(nil), h.interceptors...),
+		queue:               make(chan TrackableRequest, queueSize),
+		logger:              logger,
+		status:              PoolStatusRunning,
+		rwMutex:             new(sync.RWMutex),
+		workerSize:          workerSize,
+		numWorkers:          0,
+		baseClient:          baseClient,
+		stopWg:              new(sync.WaitGroup),
+		maxResponseBodySize: h.maxResponseBodySize,
+	}
+	client.startWorkers()
+	return client
 }
 
 func NewBuilder() HTTPClientBuilder {
-	ctx, cancelFunc := context.WithCancel(context.Background())
+	var transport *http.Transport
+	if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = defaultTransport.Clone()
+	} else {
+		transport = &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 100,
+			MaxConnsPerHost:     100,
+		}
+	}
+
 	return &httpClientBuilder{
-		transport: http.DefaultTransport.(*http.Transport).Clone(),
-		baseClient: &http.Client{
-			Timeout: time.Minute,
-		},
-		client: &httpClient{
-			ctx:        ctx,
-			cancelFunc: cancelFunc,
-			id:         "http_client",
-			queue:      make(chan TrackableRequest, 128),
-			logger:     logging.GlobalLogger.WithPrefix("http_client"),
-			status:     PoolStatusIdle,
-			rwMutex:    new(sync.RWMutex),
-			workerSize: 5,
-		},
+		id:                    "http_client",
+		interceptors:          make([]Interceptor, 0),
+		timeout:               time.Minute,
+		maxConcurrentRequests: 5,
+		maxQueueSize:          128,
+		maxConnsPerHost:       100,
+		maxResponseBodySize:   0,
+		transport:             transport,
 	}
 }

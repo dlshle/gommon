@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -21,11 +22,21 @@ func ParseJSONResponseBody[T any](resp *Response) (holder T, err error) {
 	return utils.UnmarshalJSONEntity[T](resp.Body)
 }
 
-func fromRawResponse(resp *http.Response) (*Response, error) {
+func fromRawResponse(resp *http.Response, maxBodySize int64) (*Response, error) {
 	defer resp.Body.Close() // very important for reusing connections in go http client
 	uri := resp.Request.URL.Path
 	statusCode := resp.StatusCode
-	body, err := io.ReadAll(resp.Body)
+
+	var body []byte
+	var err error
+	if maxBodySize > 0 {
+		body, err = io.ReadAll(io.LimitReader(resp.Body, maxBodySize+1))
+		if err == nil && int64(len(body)) > maxBodySize {
+			err = fmt.Errorf("response body exceeds maximum allowed size of %d bytes", maxBodySize)
+		}
+	} else {
+		body, err = io.ReadAll(resp.Body)
+	}
 	return &Response{statusCode, resp.Header, body, uri}, err
 }
 

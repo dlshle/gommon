@@ -3,6 +3,7 @@ package http
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -10,6 +11,20 @@ import (
 )
 
 type Request = http.Request
+
+// requestTimeoutKey is a private context key used to communicate a per-request
+// timeout from the request builder to the client. A typed key avoids collisions
+// with other packages using the string "timeout".
+type requestTimeoutKey struct{}
+
+func requestTimeoutContextValue(ctx context.Context) (time.Duration, bool) {
+	v := ctx.Value(requestTimeoutKey{})
+	if v == nil {
+		return 0, false
+	}
+	d, ok := v.(time.Duration)
+	return d, ok
+}
 
 // HTTP Header
 type headerMaker struct {
@@ -73,6 +88,9 @@ func NewRequestBuilder() RequestBuilder {
 	return &requestBuilder{
 		method:  "GET",
 		timeout: time.Duration(0),
+		bodyGetter: func() (io.ReadCloser, error) {
+			return http.NoBody, nil
+		},
 	}
 }
 
@@ -95,7 +113,7 @@ func (b *requestBuilder) build() (*http.Request, error) {
 	req.Header = b.header
 	req.GetBody = b.bodyGetter
 	if b.timeout > 0 {
-		req = req.WithContext(context.WithValue(req.Context(), "timeout", b.timeout))
+		req = req.WithContext(context.WithValue(req.Context(), requestTimeoutKey{}, b.timeout))
 	}
 	return req, nil
 }
@@ -126,27 +144,37 @@ func (b *requestBuilder) Header(header http.Header) RequestBuilder {
 }
 
 func (b *requestBuilder) Body(body io.ReadCloser) RequestBuilder {
+	if body == nil {
+		b.bodyGetter = func() (io.ReadCloser, error) {
+			return http.NoBody, nil
+		}
+		return b
+	}
+	// Buffer the provided body so retries can safely rewind it.
+	data, err := io.ReadAll(body)
+	_ = body.Close()
+	if err != nil {
+		b.bodyGetter = func() (io.ReadCloser, error) {
+			return nil, fmt.Errorf("read request body: %w", err)
+		}
+		return b
+	}
 	b.bodyGetter = func() (io.ReadCloser, error) {
-		return body, nil
+		return io.NopCloser(bytes.NewReader(data)), nil
 	}
 	return b
 }
 
 func (b *requestBuilder) BytesBody(body []byte) RequestBuilder {
 	b.bodyGetter = func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewBuffer(body)), nil
+		return io.NopCloser(bytes.NewReader(body)), nil
 	}
 	return b
 }
 
 func (b *requestBuilder) StringBody(body string) RequestBuilder {
-	bodyReader := BuildBodyFrom(body)
-	rc, ok := bodyReader.(io.ReadCloser)
-	if !ok && bodyReader != nil {
-		rc = io.NopCloser(bodyReader)
-	}
 	b.bodyGetter = func() (io.ReadCloser, error) {
-		return rc, nil
+		return io.NopCloser(strings.NewReader(body)), nil
 	}
 	return b
 }

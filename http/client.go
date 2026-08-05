@@ -13,24 +13,24 @@ import (
 	"github.com/dlshle/gommon/utils"
 )
 
-// TODO, need a customized request capable of retry
 func init() {
 	initPoolStatusStringMap()
 }
 
 type httpClient struct {
-	ctx          context.Context
-	cancelFunc   func()
-	id           string
-	interceptors []Interceptor
-	queue        chan TrackableRequest
-	logger       logging.Logger
-	status       int
-	rwMutex      *sync.RWMutex
-	workerSize   int
-	numWorkers   int32
-	baseClient   *http.Client
-	stopWg       *sync.WaitGroup
+	ctx                 context.Context
+	cancelFunc          func()
+	id                  string
+	interceptors        []Interceptor
+	queue               chan TrackableRequest
+	logger              logging.Logger
+	status              int
+	rwMutex             *sync.RWMutex
+	workerSize          int
+	numWorkers          int32
+	baseClient          *http.Client
+	stopWg              *sync.WaitGroup
+	maxResponseBodySize int64
 }
 
 // deprecated
@@ -126,16 +126,20 @@ func (c *httpClient) workerRoutine(id int, logger logging.Logger) {
 	logger.Debugf(c.ctx, "worker has started.")
 	for {
 		select {
-		case req, isOpen := <-c.queue:
-			if !isOpen {
-				logger.Debugf(c.ctx, "worker is exiting because queue is closed.")
-				return
-			}
+		case req := <-c.queue:
 			request := req.(*trackableRequest)
 			c.executeRequest(request, logger)
 		case <-c.ctx.Done():
-			logger.Debugf(c.ctx, "worker is exiting because client context is done.")
-			return
+			logger.Debugf(c.ctx, "worker is exiting because client context is done; draining remaining queue.")
+			for {
+				select {
+				case req := <-c.queue:
+					request := req.(*trackableRequest)
+					c.executeRequest(request, logger)
+				default:
+					return
+				}
+			}
 		}
 	}
 }
@@ -152,12 +156,20 @@ func (c *httpClient) executeRequest(request *trackableRequest, logger logging.Lo
 	defer request.complete()
 	logger.Debugf(c.ctx, "worker has acquired request(%s).", request.id)
 	resp, err := intercept(c.interceptors, request.getRequest(), func(req *Request) (*Response, error) {
-		rawResponse, err := c.baseClient.Do(request.getRequest())
+		// Reset body from GetBody so retries and interceptor chains see a fresh body each time.
+		if req.GetBody != nil {
+			body, bodyErr := req.GetBody()
+			if bodyErr != nil {
+				return nil, bodyErr
+			}
+			req.Body = body
+		}
+		rawResponse, err := c.baseClient.Do(req)
 		if err != nil {
 			logger.Debugf(c.ctx, "request(%s) failed: %v", request.id, err)
 			return nil, err
 		}
-		response, err := fromRawResponse(rawResponse)
+		response, err := fromRawResponse(rawResponse, c.maxResponseBodySize)
 		if err != nil {
 			logger.Debugf(c.ctx, "request(%s) unable to parse response body: %v", request.id, err)
 			return nil, err
@@ -182,12 +194,11 @@ func (c *httpClient) Stop() {
 		return
 	}
 	c.status = PoolStatusTerminating
-	close(c.queue)
 	c.rwMutex.Unlock()
 
+	c.cancelFunc()
 	c.stopWg.Wait()
 	c.setStatus(PoolStatusStopped)
-	c.cancelFunc()
 }
 
 func (c *httpClient) setStatus(status int) {

@@ -3,7 +3,6 @@ package http
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/dlshle/gommon/utils"
 )
@@ -26,8 +25,8 @@ func newTrackableRequest(request *http.Request) *trackableRequest {
 		ctx        context.Context
 		cancelFunc func()
 	)
-	if timeoutVal := request.Context().Value("timeout"); timeoutVal != nil {
-		ctx, cancelFunc = context.WithTimeout(request.Context(), timeoutVal.(time.Duration))
+	if timeout, ok := requestTimeoutContextValue(request.Context()); ok && timeout > 0 {
+		ctx, cancelFunc = context.WithTimeout(request.Context(), timeout)
 	} else {
 		ctx, cancelFunc = context.WithCancel(request.Context())
 	}

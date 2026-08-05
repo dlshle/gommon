@@ -1,8 +1,12 @@
 package retry
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type RetryOptions struct {
+	// MaxRetries is the total number of attempts, including the first attempt.
 	MaxRetries      int
 	Interval        time.Duration
 	Backoff         float32
@@ -24,6 +28,13 @@ func WithRetryCondition(cond func(error) bool) RetryOpt {
 	}
 }
 
+func WithMaxRetries(maxRetries int) RetryOpt {
+	return func(ro *RetryOptions) *RetryOptions {
+		ro.MaxRetries = maxRetries
+		return ro
+	}
+}
+
 func WithBackoff(backoff float32) RetryOpt {
 	return func(ro *RetryOptions) *RetryOptions {
 		ro.Backoff = backoff
@@ -40,17 +51,26 @@ func WithInterval(interval time.Duration) RetryOpt {
 
 func singleBackoffRetryOpt(ro *RetryOptions) *RetryOptions {
 	return &RetryOptions{
-		Backoff:    1,
-		Interval:   ro.Interval,
-		MaxRetries: ro.MaxRetries,
+		Backoff:         1,
+		Interval:        ro.Interval,
+		MaxRetries:      ro.MaxRetries,
+		RetryConditions: ro.RetryConditions,
 	}
 }
 
 func Retry(task func() error, opts ...RetryOpt) error {
-	return RetryWithBackoff(task, append(opts, singleBackoffRetryOpt)...)
+	return RetryWithContext(context.Background(), task, opts...)
+}
+
+func RetryWithContext(ctx context.Context, task func() error, opts ...RetryOpt) error {
+	return RetryWithBackoffContext(ctx, task, append(opts, singleBackoffRetryOpt)...)
 }
 
 func RetryWithBackoff(task func() error, opts ...RetryOpt) (err error) {
+	return RetryWithBackoffContext(context.Background(), task, opts...)
+}
+
+func RetryWithBackoffContext(ctx context.Context, task func() error, opts ...RetryOpt) (err error) {
 	cfg := &RetryOptions{
 		MaxRetries: 1,
 		Backoff:    1,
@@ -63,14 +83,22 @@ func RetryWithBackoff(task func() error, opts ...RetryOpt) (err error) {
 
 	interval := cfg.Interval
 	for i := 0; i < cfg.MaxRetries; i++ {
+		if err = ctx.Err(); err != nil {
+			return err
+		}
 		if err = task(); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			if !isErrorRetryable(cfg, err) {
 				return err
 			}
 
 			// don't sleep after the last attempt
 			if i < cfg.MaxRetries-1 {
-				time.Sleep(interval)
+				if err = wait(ctx, interval); err != nil {
+					return err
+				}
 				interval = time.Duration(float32(interval) * cfg.Backoff)
 			}
 			continue
@@ -78,6 +106,20 @@ func RetryWithBackoff(task func() error, opts ...RetryOpt) (err error) {
 		return nil
 	}
 	return
+}
+
+func wait(ctx context.Context, interval time.Duration) error {
+	if interval <= 0 {
+		return ctx.Err()
+	}
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func validateAndFixRetryOption(cfg *RetryOptions) {

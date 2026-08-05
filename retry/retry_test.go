@@ -1,10 +1,13 @@
 package retry
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 )
+
+const contextCancellationTestTimeout = time.Second
 
 func TestRetrySuccess(t *testing.T) {
 	// Test that a successful task on first try works
@@ -88,8 +91,6 @@ func TestRetryWithConditionSuccess(t *testing.T) {
 }
 
 func TestRetryWithConditionFail(t *testing.T) {
-	// Test retry with custom condition that doesn't allow retry
-	// Note: Even if an error is not retryable, it will still retry until max retries is reached
 	attempts := 0
 	expectedErr := errors.New("non-retryable error")
 	task := func() error {
@@ -106,10 +107,8 @@ func TestRetryWithConditionFail(t *testing.T) {
 	if err != expectedErr {
 		t.Errorf("Expected error %v, got %v", expectedErr, err)
 	}
-	// Even though the error is not retryable, it will still retry until max retries is reached
-	// This is the current behavior of the retry mechanism
-	if attempts != 5 {
-		t.Errorf("Expected 5 attempts (max retries), got %d", attempts)
+	if attempts != 1 {
+		t.Errorf("Expected 1 attempt, got %d", attempts)
 	}
 }
 
@@ -158,11 +157,61 @@ func TestRetryWithBackoff(t *testing.T) {
 	if attempts != 3 {
 		t.Errorf("Expected 3 attempts, got %d", attempts)
 	}
-	
+
 	// Verify that backoff occurred (should take more than 20ms: 10ms + 20ms)
 	// Adding some buffer for test execution time
 	if duration < time.Millisecond*20 {
 		t.Errorf("Expected backoff to increase duration, took %v", duration)
+	}
+}
+
+func TestRetryWithContextAlreadyCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	attempts := 0
+	err := RetryWithContext(ctx, func() error {
+		attempts++
+		return errors.New("unexpected attempt")
+	}, WithMaxRetries(3))
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled, got %v", err)
+	}
+	if attempts != 0 {
+		t.Fatalf("expected no attempts, got %d", attempts)
+	}
+}
+
+func TestRetryWithBackoffContextCancellationInterruptsWait(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	attempted := make(chan struct{})
+	done := make(chan error, 1)
+
+	go func() {
+		done <- RetryWithBackoffContext(ctx, func() error {
+			select {
+			case attempted <- struct{}{}:
+			default:
+			}
+			return errors.New("retryable error")
+		}, WithMaxRetries(3), WithInterval(time.Hour), WithBackoff(2))
+	}()
+
+	select {
+	case <-attempted:
+	case <-time.After(contextCancellationTestTimeout):
+		t.Fatal("task was not attempted")
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context canceled, got %v", err)
+		}
+	case <-time.After(contextCancellationTestTimeout):
+		t.Fatal("retry wait did not stop after context cancellation")
 	}
 }
 
@@ -209,6 +258,25 @@ func TestRetry1WithRetries(t *testing.T) {
 	}
 }
 
+func TestRetry1PreservesRetryConditions(t *testing.T) {
+	attempts := 0
+	expectedErr := errors.New("non-retryable error")
+
+	_, err := Retry1(func() (int, error) {
+		attempts++
+		return 0, expectedErr
+	}, WithMaxRetries(3), WithRetryCondition(func(error) bool {
+		return false
+	}))
+
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected %v, got %v", expectedErr, err)
+	}
+	if attempts != 1 {
+		t.Fatalf("expected 1 attempt, got %d", attempts)
+	}
+}
+
 func TestValidateAndFixRetryOption(t *testing.T) {
 	// Test that negative or zero max retries defaults to 1
 	cfg := &RetryOptions{
@@ -217,11 +285,11 @@ func TestValidateAndFixRetryOption(t *testing.T) {
 	}
 
 	validateAndFixRetryOption(cfg)
-	
+
 	if cfg.MaxRetries != 1 {
 		t.Errorf("Expected MaxRetries to be 1, got %d", cfg.MaxRetries)
 	}
-	
+
 	if cfg.Backoff != 1 {
 		t.Errorf("Expected Backoff to be 1, got %f", cfg.Backoff)
 	}
@@ -230,7 +298,7 @@ func TestValidateAndFixRetryOption(t *testing.T) {
 func TestIsErrorRetryableDefault(t *testing.T) {
 	// Test that by default all errors are retryable
 	cfg := &RetryOptions{}
-	
+
 	err := errors.New("any error")
 	if !isErrorRetryable(cfg, err) {
 		t.Error("Expected error to be retryable by default")
@@ -246,23 +314,15 @@ func TestIsErrorRetryableWithConditions(t *testing.T) {
 			},
 		},
 	}
-	
+
 	retryableErr := errors.New("retryable error")
 	nonRetryableErr := errors.New("non-retryable error")
-	
+
 	if !isErrorRetryable(cfg, retryableErr) {
 		t.Error("Expected 'retryable error' to be retryable")
 	}
-	
+
 	if isErrorRetryable(cfg, nonRetryableErr) {
 		t.Error("Expected 'non-retryable error' to not be retryable")
-	}
-}
-
-// Helper function to create retry option with max retries
-func WithMaxRetries(maxRetries int) RetryOpt {
-	return func(ro *RetryOptions) *RetryOptions {
-		ro.MaxRetries = maxRetries
-		return ro
 	}
 }

@@ -3,53 +3,51 @@ package logging
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/dlshle/gommon/errors"
 )
 
-var logEntityPool sync.Pool
+var GlobalLogger Logger = NewDefaultLogger(os.Stdout, "", LogAllWaterMark)
 
-func init() {
-	logEntityPool = sync.Pool{
-		New: func() any {
-			return new(LogEntity)
-		},
-	}
-}
-
-var GlobalLogger Logger = CreateDefaultLogger(NewConsoleLogWriter(os.Stdout), "", LogAllWaterMark)
-
-const CtxValLoggingContext = "$logging_ctx"
+// Level is a typed log severity.
+type Level int
 
 const (
-	TRACE = iota
+	TRACE Level = iota
 	DEBUG
 	INFO
 	WARN
 	ERROR
 	FATAL
-
-	pTrace = "TRACE"
-	pDebug = "DEBUG"
-	pInfo  = "INFO"
-	pWarn  = "WARN"
-	pError = "ERROR"
-	pFatal = "FATAL"
 )
 
-var LogLevelPrefixMap = map[int]string{
-	TRACE: pTrace,
-	DEBUG: pDebug,
-	INFO:  pInfo,
-	WARN:  pWarn,
-	ERROR: pError,
-	FATAL: pFatal,
+const LogAllWaterMark Level = -1
+
+var levelPrefix = map[Level]string{
+	TRACE: "TRACE",
+	DEBUG: "DEBUG",
+	INFO:  "INFO",
+	WARN:  "WARN",
+	ERROR: "ERROR",
+	FATAL: "FATAL",
 }
 
+func (l Level) String() string {
+	if p, ok := levelPrefix[l]; ok {
+		return p
+	}
+	return fmt.Sprintf("LEVEL(%d)", l)
+}
+
+func (l Level) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + l.String() + `"`), nil
+}
+
+// Logger is the primary logging interface.
 type Logger interface {
 	Trace(ctx context.Context, records ...string)
 	Debug(ctx context.Context, records ...string)
@@ -68,92 +66,83 @@ type Logger interface {
 	Fatalf(ctx context.Context, format string, records ...interface{})
 
 	SetContext(k, v string)
-	SetWaterMark(int)
+	SetWaterMark(Level)
 	SetMessageTruncateThreshold(threshold int)
-	WaterMarkWithPropogate(int)
+	WaterMarkWithPropogate(Level)
 	DeleteContext(k string)
 	Prefix(prefix string)
 	PrefixWithPropogate(prefix string)
-	Format(format int)
-	Writer(writer LogWriter)
-	WriterWithPropogate(writer LogWriter)
+	SetWriter(writer LogWriter)
+	SetWriterWithPropogate(writer LogWriter)
 
-	// create new logger
 	WithPrefix(prefix string) Logger
-	WithFormat(format int) Logger
 	WithWriter(writer LogWriter) Logger
-
 	WithContext(context map[string]string) Logger
-	WithGRContextLogging(bool) Logger
-	WithWaterMark(int) Logger
+	WithWaterMark(Level) Logger
 	WithMessageTruncateThreshold(threshold int) Logger
+	WithCallerDepth(callerDepth int) Logger
 }
 
+// LogEntity is the unit of data passed to a LogWriter.
+// Writers receive a pointer for efficiency, but they must synchronously
+// consume the entity; they must not retain it after Write returns.
 type LogEntity struct {
-	Level     int
-	Prefix    string
-	Context   map[string]string
-	Timestamp time.Time
-	Message   string
-	File      string
+	Level     Level             `json:"level"`
+	Prefix    string            `json:"prefix"`
+	Context   map[string]string `json:"context"`
+	Timestamp time.Time         `json:"timestamp"`
+	Message   string            `json:"message"`
+	File      string            `json:"file"`
 }
 
-func (e *LogEntity) recycle() {
-	e.Level = 0
-	e.Prefix = ""
-	e.Context = nil
-	e.Timestamp = time.Time{}
-	e.Message = ""
-	e.File = ""
-	logEntityPool.Put(e)
+func newLogEntity(level Level, prefix string, context map[string]string, timestamp time.Time, message string, file string) *LogEntity {
+	return &LogEntity{
+		Level:     level,
+		Prefix:    prefix,
+		Context:   context,
+		Timestamp: timestamp,
+		Message:   message,
+		File:      file,
+	}
 }
 
-func newLogEntity(level int, prefix string, context map[string]string, timestamp time.Time, message string, file string) *LogEntity {
-	entity := logEntityPool.Get().(*LogEntity)
-	entity.Level = level
-	entity.Prefix = prefix
-	entity.Context = context
-	entity.Timestamp = timestamp
-	entity.Message = message
-	entity.File = file
-	return entity
-}
-
+// LogWriter is the sink interface for log entities.
 type LogWriter interface {
-	Write(entity *LogEntity)
+	Write(entity *LogEntity) error
 }
 
+// SimpleStringWriter formats entities as plain text lines.
 type SimpleStringWriter struct {
 	consoleWriter io.Writer
 }
 
 func NewConsoleLogWriter(writer io.Writer) LogWriter {
-	return SimpleStringWriter{
-		writer,
-	}
+	return &SimpleStringWriter{consoleWriter: writer}
 }
 
-func (w SimpleStringWriter) Write(logEntity *LogEntity) {
+func (w *SimpleStringWriter) Write(logEntity *LogEntity) error {
 	var builder bytes.Buffer
 	builder.WriteString(logEntity.Timestamp.Format(time.RFC3339))
-	builder.WriteRune(' ')
-	builder.WriteRune('[')
-	builder.WriteString(LogLevelPrefixMap[logEntity.Level])
-	builder.WriteRune(']')
-	builder.WriteRune(' ')
+	builder.WriteString(" [")
+	builder.WriteString(logEntity.Level.String())
+	builder.WriteString("] ")
 	builder.WriteString(logEntity.Prefix)
-	builder.WriteRune(' ')
+	builder.WriteString(" ")
 	builder.WriteString(logEntity.File)
-	builder.WriteRune(' ')
+	builder.WriteString(" ")
 	builder.WriteString(logEntity.Message)
-	builder.WriteRune('\n')
-	w.consoleWriter.Write(builder.Bytes())
+	builder.WriteByte('\n')
+	_, err := w.consoleWriter.Write(builder.Bytes())
+	return err
 }
 
+// NoopWriter discards every entity.
 type NoopWriter struct{}
 
-func NewNoopWriter() NoopWriter {
-	return NoopWriter{}
+func NewNoopWriter() LogWriter {
+	return &NoopWriter{}
 }
 
-func (w NoopWriter) Write(entity *LogEntity) {}
+func (w *NoopWriter) Write(entity *LogEntity) error {
+	return nil
+}

@@ -2,21 +2,18 @@ package log
 
 import (
 	"context"
+	"os"
 
 	"github.com/dlshle/gommon/errors"
 	"github.com/dlshle/gommon/logging"
 )
 
-// a simplified logging wrapper for DefaultGlobalLogger
+// DefaultGlobalLogger is a package-level logger configured with a caller depth
+// that accounts for this package's wrapper functions.
 var DefaultGlobalLogger logging.Logger
 
 func init() {
-	initializeLoggerWithFixedCallerDepth()
-}
-
-func initializeLoggerWithFixedCallerDepth() {
-	logger, _ := (logging.GlobalLogger.(*logging.DefaultLogger))
-	DefaultGlobalLogger = logger.WithCallerDepth(4)
+	DefaultGlobalLogger = logging.NewDefaultLogger(os.Stdout, "", logging.LogAllWaterMark).WithCallerDepth(4)
 }
 
 func Trace(ctx context.Context, records ...string) {
@@ -75,10 +72,10 @@ func Fatalf(ctx context.Context, format string, records ...interface{}) {
 	DefaultGlobalLogger.Fatalf(ctx, format, records...)
 }
 
-func SetWaterMark(waterMark int) {
+func SetWaterMark(waterMark logging.Level) {
 	DefaultGlobalLogger.SetWaterMark(waterMark)
 }
 
-func Writer(writer logging.LogWriter) {
-	DefaultGlobalLogger.Writer(writer)
+func SetWriter(writer logging.LogWriter) {
+	DefaultGlobalLogger.SetWriter(writer)
 }

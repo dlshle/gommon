@@ -6,319 +6,300 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/dlshle/gommon/errors"
 )
 
+// DefaultLogger is a thread-safe concrete Logger implementation.
 type DefaultLogger struct {
+	mu                   sync.RWMutex
 	writer               LogWriter
 	prefix               string
-	logLevelWaterMark    int
+	logLevelWaterMark    Level
 	context              map[string]string
-	enableGRContext      bool
 	subLoggers           []Logger
-	enableAutoStackTrace bool
 	callerDepth          int
-	msgTruncateThreshold int // max size of msg to truncate
+	msgTruncateThreshold int
 }
 
 const (
-	LogAllWaterMark             = -1
 	DefaultCallerDepth          = 3
 	DefaultMsgTruncateThreshold = 1024 * 15 // 15kb
 )
 
-var nilStringBytes = []byte{'n', 'i', 'l'}
-
 func StdOutLevelLogger(prefix string) Logger {
-	return CreateDefaultLogger(NewConsoleLogWriter(os.Stdout), prefix, LogAllWaterMark)
+	return NewDefaultLogger(os.Stdout, prefix, LogAllWaterMark)
 }
 
-func NewDefaultLogger(writer io.Writer, prefix string, format int, waterMark int) *DefaultLogger {
+func NewDefaultLogger(writer io.Writer, prefix string, waterMark Level) *DefaultLogger {
 	return &DefaultLogger{
 		writer:               NewConsoleLogWriter(writer),
 		prefix:               prefix,
 		logLevelWaterMark:    waterMark,
 		context:              make(map[string]string),
-		enableGRContext:      false,
 		subLoggers:           make([]Logger, 0),
-		enableAutoStackTrace: false,
 		callerDepth:          DefaultCallerDepth,
 		msgTruncateThreshold: DefaultMsgTruncateThreshold,
 	}
 }
 
-func CreateDefaultLogger(entityWriter LogWriter, prefix string, loggingMark int) Logger {
+func CreateDefaultLogger(entityWriter LogWriter, prefix string, loggingMark Level) Logger {
 	return &DefaultLogger{
 		writer:               entityWriter,
 		prefix:               prefix,
 		logLevelWaterMark:    loggingMark,
 		context:              make(map[string]string),
-		enableGRContext:      true,
 		subLoggers:           make([]Logger, 0),
-		enableAutoStackTrace: false,
 		callerDepth:          DefaultCallerDepth,
 		msgTruncateThreshold: DefaultMsgTruncateThreshold,
 	}
 }
 
 func (l *DefaultLogger) copy() *DefaultLogger {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	ctxCopy := make(map[string]string, len(l.context))
+	for k, v := range l.context {
+		ctxCopy[k] = v
+	}
 	return &DefaultLogger{
 		writer:               l.writer,
 		prefix:               l.prefix,
 		logLevelWaterMark:    l.logLevelWaterMark,
-		context:              l.context,
-		enableGRContext:      l.enableGRContext,
-		subLoggers:           l.subLoggers,
-		enableAutoStackTrace: l.enableAutoStackTrace,
+		context:              ctxCopy,
+		subLoggers:           make([]Logger, 0),
 		callerDepth:          l.callerDepth,
 		msgTruncateThreshold: l.msgTruncateThreshold,
 	}
 }
 
-func (l *DefaultLogger) output(ctx context.Context, level int, data ...string) {
-	if level < l.logLevelWaterMark {
+func (l *DefaultLogger) outputWithExtraContext(ctx context.Context, level Level, extraContext map[string]string, data ...string) {
+	l.mu.RLock()
+	waterMark := l.logLevelWaterMark
+	threshold := l.msgTruncateThreshold
+	l.mu.RUnlock()
+	if level < waterMark {
 		return
 	}
+
 	var builder bytes.Buffer
-	if data == nil {
-		builder.Write(nilStringBytes)
-	} else if len(data) == 1 {
-		builder.WriteString(data[0])
-	} else {
-		for _, piece := range data {
-			builder.WriteString(piece)
-		}
+	for _, piece := range data {
+		builder.WriteString(piece)
 	}
-	if builder.Len() > l.msgTruncateThreshold {
-		builder.Truncate(l.msgTruncateThreshold)
+	if builder.Len() > threshold {
+		builder.Truncate(threshold)
 		builder.WriteString("...")
 	}
-	logEntity := newLogEntity(level, l.prefix, l.prepareContext(ctx), time.Now(), builder.String(), l.getFileName())
-	l.writer.Write(logEntity)
-	logEntity.recycle()
+
+	prefix, ctxCopy := l.snapshotPrefixAndContext()
+	for k, v := range extraContext {
+		ctxCopy[k] = v
+	}
+	logEntity := newLogEntity(level, prefix, ctxCopy, time.Now(), builder.String(), l.getFileName())
+	_ = l.writer.Write(logEntity)
+}
+
+func (l *DefaultLogger) snapshotPrefixAndContext() (string, map[string]string) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	ctxCopy := make(map[string]string, len(l.context))
+	for k, v := range l.context {
+		ctxCopy[k] = v
+	}
+	return l.prefix, ctxCopy
 }
 
 func (l *DefaultLogger) getFileName() string {
 	_, file, line, ok := runtime.Caller(l.callerDepth)
 	if !ok {
-		file = "???"
-		line = 0
+		return "???:0"
 	}
-	short := file
-	for i := len(file) - 1; i > 0; i-- {
-		if file[i] == '/' {
-			short = file[i+1:]
-			break
-		}
-	}
-	file = short
-	return file + ":" + strconv.Itoa(line)
-}
-
-func (l *DefaultLogger) prepareContext(ctx context.Context) map[string]string {
-	allContext := make(map[string]string)
-	for k, v := range l.context {
-		allContext[k] = v
-	}
-	if ctx != nil {
-		iLoggingCtx := ctx.Value(CtxValLoggingContext)
-		if iLoggingCtx != nil {
-			loggingCtx, ok := iLoggingCtx.(map[string]string)
-			if ok {
-				for k, v := range loggingCtx {
-					allContext[k] = v
-				}
-			}
-		}
-	}
-	return allContext
+	return filepath.Base(file) + ":" + strconv.Itoa(line)
 }
 
 func (l *DefaultLogger) Debug(ctx context.Context, records ...string) {
-	l.output(ctx, DEBUG, records...)
+	l.outputWithExtraContext(ctx, DEBUG, nil, records...)
 }
 
 func (l *DefaultLogger) Trace(ctx context.Context, records ...string) {
-	l.output(ctx, TRACE, records...)
+	l.outputWithExtraContext(ctx, TRACE, nil, records...)
 }
 
 func (l *DefaultLogger) Info(ctx context.Context, records ...string) {
-	l.output(ctx, INFO, records...)
+	l.outputWithExtraContext(ctx, INFO, nil, records...)
 }
 
 func (l *DefaultLogger) Warn(ctx context.Context, records ...string) {
-	l.output(ctx, WARN, records...)
+	l.outputWithExtraContext(ctx, WARN, nil, records...)
 }
 
 func (l *DefaultLogger) Error(ctx context.Context, records ...string) {
-	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, nil), ERROR, records...)
+	l.outputWithExtraContext(ctx, ERROR, nil, records...)
 }
 
 func (l *DefaultLogger) TrackableError(ctx context.Context, err *errors.TrackableError, records ...string) {
-	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, err), ERROR, append(records, err.Error())...)
+	l.outputWithExtraContext(ctx, ERROR, l.stackTraceContext(err), records...)
 }
 
 func (l *DefaultLogger) Fatal(ctx context.Context, records ...string) {
-	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, nil), FATAL, records...)
+	l.outputWithExtraContext(ctx, FATAL, nil, records...)
 }
 
 func (l *DefaultLogger) Debugf(ctx context.Context, format string, records ...interface{}) {
-	l.output(ctx, DEBUG, fmt.Sprintf(format, records...))
+	l.outputWithExtraContext(ctx, DEBUG, nil, fmt.Sprintf(format, records...))
 }
 
 func (l *DefaultLogger) Tracef(ctx context.Context, format string, records ...interface{}) {
-	l.output(ctx, TRACE, fmt.Sprintf(format, records...))
+	l.outputWithExtraContext(ctx, TRACE, nil, fmt.Sprintf(format, records...))
 }
 
 func (l *DefaultLogger) Infof(ctx context.Context, format string, records ...interface{}) {
-	l.output(ctx, INFO, fmt.Sprintf(format, records...))
+	l.outputWithExtraContext(ctx, INFO, nil, fmt.Sprintf(format, records...))
 }
 
 func (l *DefaultLogger) Warnf(ctx context.Context, format string, records ...interface{}) {
-	l.output(ctx, WARN, fmt.Sprintf(format, records...))
+	l.outputWithExtraContext(ctx, WARN, nil, fmt.Sprintf(format, records...))
 }
 
 func (l *DefaultLogger) Errorf(ctx context.Context, format string, records ...interface{}) {
-	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, nil), ERROR, fmt.Sprintf(format, records...))
+	l.outputWithExtraContext(ctx, ERROR, nil, fmt.Sprintf(format, records...))
 }
 
 func (l *DefaultLogger) TrackableErrorf(ctx context.Context, err *errors.TrackableError, format string, records ...interface{}) {
-	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, err), ERROR, fmt.Sprintf(format, records...))
+	l.outputWithExtraContext(ctx, ERROR, l.stackTraceContext(err), fmt.Sprintf(format, records...))
 }
 
 func (l *DefaultLogger) Fatalf(ctx context.Context, format string, records ...interface{}) {
-	l.output(l.wrapCtxWithStackTraceIfNotPresent(ctx, nil), FATAL, fmt.Sprintf(format, records...))
+	l.outputWithExtraContext(ctx, FATAL, nil, fmt.Sprintf(format, records...))
 }
 
-func (l *DefaultLogger) wrapCtxWithStackTraceIfNotPresent(ctx context.Context, err *errors.TrackableError) context.Context {
-	if ctx != nil {
-		ctx = context.Background()
+func (l *DefaultLogger) stackTraceContext(err *errors.TrackableError) map[string]string {
+	if err == nil {
+		return nil
 	}
-	var stacktrace string
-	if err != nil {
-		stacktrace = err.Stacktrace()
-	} else {
-		if !l.enableAutoStackTrace {
-			return ctx
-		}
-		stacktrace = errors.StackTrace(2)
-	}
-	ctx.Value(CtxValLoggingContext)
-	ctx = WrapCtx(ctx, "stacktrace", stacktrace)
-	return ctx
+	return map[string]string{"stacktrace": err.Stacktrace()}
 }
 
 func (l *DefaultLogger) SetContext(k, v string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.context[k] = v
 }
 
 func (l *DefaultLogger) DeleteContext(k string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	delete(l.context, k)
 }
 
 func (l *DefaultLogger) Prefix(prefix string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.prefix = prefix
 }
 
 func (l *DefaultLogger) PrefixWithPropogate(prefix string) {
+	l.mu.Lock()
 	l.prefix = prefix
-	for _, subLogger := range l.subLoggers {
+	subs := make([]Logger, len(l.subLoggers))
+	copy(subs, l.subLoggers)
+	l.mu.Unlock()
+	for _, subLogger := range subs {
 		subLogger.PrefixWithPropogate(prefix)
 	}
 }
 
-func (l *DefaultLogger) Format(format int) {
-	// no-op
-}
-
-func (l *DefaultLogger) Writer(writer LogWriter) {
+func (l *DefaultLogger) SetWriter(writer LogWriter) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.writer = writer
 }
 
-func (l *DefaultLogger) WriterWithPropogate(writer LogWriter) {
+func (l *DefaultLogger) SetWriterWithPropogate(writer LogWriter) {
+	l.mu.Lock()
 	l.writer = writer
-	for _, subLogger := range l.subLoggers {
-		subLogger.WriterWithPropogate(writer)
+	subs := make([]Logger, len(l.subLoggers))
+	copy(subs, l.subLoggers)
+	l.mu.Unlock()
+	for _, subLogger := range subs {
+		subLogger.SetWriterWithPropogate(writer)
 	}
 }
 
-// create new logger
 func (l *DefaultLogger) WithPrefix(prefix string) Logger {
-	subLogger := CreateDefaultLogger(l.writer, prefix, l.logLevelWaterMark)
-	l.subLoggers = append(l.subLoggers, subLogger)
-	return subLogger
-}
-
-func (l *DefaultLogger) WithFormat(format int) Logger {
-	subLogger := CreateDefaultLogger(l.writer, l.prefix, l.logLevelWaterMark)
-	l.subLoggers = append(l.subLoggers, subLogger)
+	subLogger := l.copy()
+	subLogger.prefix = prefix
+	l.registerSubLogger(subLogger)
 	return subLogger
 }
 
 func (l *DefaultLogger) WithWriter(writer LogWriter) Logger {
-	subLogger := CreateDefaultLogger(writer, l.prefix, l.logLevelWaterMark)
-	l.subLoggers = append(l.subLoggers, subLogger)
-	return subLogger
-}
-
-func (l *DefaultLogger) WithGRContextLogging(useGRCL bool) Logger {
-	subLogger := &DefaultLogger{
-		writer:            l.writer,
-		prefix:            l.prefix,
-		logLevelWaterMark: l.logLevelWaterMark,
-		context:           l.context,
-		enableGRContext:   useGRCL,
-		subLoggers:        make([]Logger, 0),
-	}
-	l.subLoggers = append(l.subLoggers, subLogger)
+	subLogger := l.copy()
+	subLogger.writer = writer
+	l.registerSubLogger(subLogger)
 	return subLogger
 }
 
 func (l *DefaultLogger) WithContext(context map[string]string) Logger {
-	subLogger := &DefaultLogger{
-		writer:            l.writer,
-		prefix:            l.prefix,
-		logLevelWaterMark: l.logLevelWaterMark,
-		context:           context,
-		subLoggers:        make([]Logger, 0),
+	subLogger := l.copy()
+	for k, v := range context {
+		subLogger.context[k] = v
 	}
-	l.subLoggers = append(l.subLoggers, subLogger)
+	l.registerSubLogger(subLogger)
 	return subLogger
 }
 
-func (l *DefaultLogger) SetWaterMark(waterMark int) {
-	l.logLevelWaterMark = waterMark
-}
-
-func (l *DefaultLogger) SetMessageTruncateThreshold(msgTruncateThreshold int) {
-	l.msgTruncateThreshold = msgTruncateThreshold
-}
-
-func (l *DefaultLogger) WaterMarkWithPropogate(waterMark int) {
-	l.logLevelWaterMark = waterMark
-	for _, subLogger := range l.subLoggers {
-		subLogger.WaterMarkWithPropogate(waterMark)
-	}
-}
-
-func (l *DefaultLogger) WithWaterMark(waterMark int) Logger {
+func (l *DefaultLogger) WithWaterMark(waterMark Level) Logger {
 	subLogger := l.copy()
-	l.subLoggers = append(l.subLoggers, subLogger)
-	return subLogger
-}
-
-func (l *DefaultLogger) WithCallerDepth(callerDepth int) Logger {
-	subLogger := l.copy()
-	subLogger.callerDepth = callerDepth
+	subLogger.logLevelWaterMark = waterMark
+	l.registerSubLogger(subLogger)
 	return subLogger
 }
 
 func (l *DefaultLogger) WithMessageTruncateThreshold(threshold int) Logger {
 	subLogger := l.copy()
 	subLogger.msgTruncateThreshold = threshold
+	l.registerSubLogger(subLogger)
 	return subLogger
+}
+
+func (l *DefaultLogger) WithCallerDepth(callerDepth int) Logger {
+	subLogger := l.copy()
+	subLogger.callerDepth = callerDepth
+	l.registerSubLogger(subLogger)
+	return subLogger
+}
+
+func (l *DefaultLogger) registerSubLogger(sub Logger) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.subLoggers = append(l.subLoggers, sub)
+}
+
+func (l *DefaultLogger) SetWaterMark(waterMark Level) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.logLevelWaterMark = waterMark
+}
+
+func (l *DefaultLogger) SetMessageTruncateThreshold(msgTruncateThreshold int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.msgTruncateThreshold = msgTruncateThreshold
+}
+
+func (l *DefaultLogger) WaterMarkWithPropogate(waterMark Level) {
+	l.mu.Lock()
+	l.logLevelWaterMark = waterMark
+	subs := make([]Logger, len(l.subLoggers))
+	copy(subs, l.subLoggers)
+	l.mu.Unlock()
+	for _, subLogger := range subs {
+		subLogger.WaterMarkWithPropogate(waterMark)
+	}
 }

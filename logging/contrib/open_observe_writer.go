@@ -9,7 +9,6 @@ import (
 
 	nhttp "net/http"
 
-	"github.com/dlshle/gommon/errors"
 	"github.com/dlshle/gommon/http"
 	"github.com/dlshle/gommon/logging"
 )
@@ -31,6 +30,7 @@ type OpenObserveLoggingConfig struct {
 
 type OpenObserveWriter struct {
 	ctx            context.Context
+	cancel         context.CancelFunc
 	c              http.HTTPClient
 	streamURL      string
 	hdr            nhttp.Header
@@ -40,8 +40,10 @@ type OpenObserveWriter struct {
 
 func NewOpenObserveWriter(ctx context.Context, cfg *OpenObserveLoggingConfig) logging.LogWriter {
 	c := http.NewBuilder().TimeoutSec(60).MaxConnsPerHost(5).Build()
+	innerCtx, cancel := context.WithCancel(ctx)
 	ow := &OpenObserveWriter{
-		ctx:            ctx,
+		ctx:            innerCtx,
+		cancel:         cancel,
 		c:              c,
 		hdr:            http.NewHeaderMaker().Set("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", cfg.Username, cfg.AccessKey))))).Make(),
 		streamURL:      fmt.Sprintf("%s/api/%s/%s/_json", cfg.Host, cfg.Organization, cfg.Stream),
@@ -56,12 +58,17 @@ func NewOpenObserveWriter(ctx context.Context, cfg *OpenObserveLoggingConfig) lo
 }
 
 func (o *OpenObserveWriter) Write(p []byte) (n int, err error) {
-	// append stream to the log body
 	if len(p) < 2 {
-		return 0, errors.Error("log body is too short")
+		return 0, fmt.Errorf("log body is too short")
 	}
-	o.ch <- p
-	return 0, nil
+	// Copy the bytes because the caller may reuse the underlying buffer.
+	payload := append([]byte(nil), p...)
+	select {
+	case <-o.ctx.Done():
+		return 0, o.ctx.Err()
+	case o.ch <- payload:
+		return len(payload), nil
+	}
 }
 
 func (o *OpenObserveWriter) consumer() {
@@ -70,7 +77,7 @@ func (o *OpenObserveWriter) consumer() {
 	defer t.Stop()
 	buffer.WriteByte('[')
 	flushFn := func(force bool) {
-		if (force && buffer.Len() > 2) || buffer.Len() >= o.flushThreshold {
+		if (force && buffer.Len() > 1) || buffer.Len() >= o.flushThreshold {
 			buffer.Truncate(buffer.Len() - 1) // truncate the last comma
 			buffer.WriteByte(']')
 			o.flush(buffer.Bytes())
@@ -81,10 +88,10 @@ func (o *OpenObserveWriter) consumer() {
 	for {
 		select {
 		case <-o.ctx.Done():
-			// stop
+			// Flush any buffered logs before exiting.
+			flushFn(true)
 			return
 		case <-t.C:
-			// tick
 			flushFn(true)
 		case block := <-o.ch:
 			buffer.Write(block)
@@ -105,7 +112,7 @@ func (o *OpenObserveWriter) flush(blocks []byte) {
 		BytesBody(blocks).
 		Build()
 	if err != nil {
-		consoleLogger.Errorf(o.ctx, "failed to build request for open observe dur to %s", err.Error())
+		consoleLogger.Errorf(o.ctx, "failed to build request for open observe due to %s", err.Error())
 		return
 	}
 	for i := 0; i < 3; i++ {
@@ -114,7 +121,11 @@ func (o *OpenObserveWriter) flush(blocks []byte) {
 			consoleLogger.Infof(o.ctx, "OpenObserveWriter: %d bytes of logs flushed.", len(blocks))
 			return
 		}
-		consoleLogger.Errorf(o.ctx, "Failed to flush %d logs to OpenObserve on %d attempt with response (%d, %s) on URI %s with err %v.", len(blocks), i, resp.Code, resp.Body, resp.URI, err)
+		if resp != nil {
+			consoleLogger.Errorf(o.ctx, "Failed to flush %d bytes to OpenObserve on attempt %d with response (%d, %s) on URI %s with err %v.", len(blocks), i, resp.Code, resp.Body, resp.URI, err)
+		} else {
+			consoleLogger.Errorf(o.ctx, "Failed to flush %d bytes to OpenObserve on attempt %d with err %v.", len(blocks), i, err)
+		}
 		time.Sleep(time.Second)
 	}
 }

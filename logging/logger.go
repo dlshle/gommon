@@ -13,6 +13,10 @@ import (
 
 var GlobalLogger Logger = NewDefaultLogger(os.Stdout, "", LogAllWaterMark)
 
+// CtxValLoggingContext is the context key used by WrapCtx to store per-call
+// logging context values.
+const CtxValLoggingContext = "$logging_ctx"
+
 // Level is a typed log severity.
 type Level int
 

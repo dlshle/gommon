@@ -97,11 +97,29 @@ func (l *DefaultLogger) outputWithExtraContext(ctx context.Context, level Level,
 	}
 
 	prefix, ctxCopy := l.snapshotPrefixAndContext()
+	for k, v := range loggingContextFromCtx(ctx) {
+		ctxCopy[k] = v
+	}
 	for k, v := range extraContext {
 		ctxCopy[k] = v
 	}
 	logEntity := newLogEntity(level, prefix, ctxCopy, time.Now(), builder.String(), l.getFileName())
 	_ = l.writer.Write(logEntity)
+}
+
+func loggingContextFromCtx(ctx context.Context) map[string]string {
+	if ctx == nil {
+		return nil
+	}
+	val := ctx.Value(CtxValLoggingContext)
+	if val == nil {
+		return nil
+	}
+	loggingCtx, ok := val.(map[string]string)
+	if !ok {
+		return nil
+	}
+	return loggingCtx
 }
 
 func (l *DefaultLogger) snapshotPrefixAndContext() (string, map[string]string) {

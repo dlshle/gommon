@@ -1,6 +1,7 @@
 package async
 
 import (
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -268,6 +269,98 @@ func TestFuture(t *testing.T) {
 			testutils.AssertEquals(f0_1_r.(int), 1)
 			testutils.AssertNil(f0_1_e)
 			return true
+		}),
+		testutils.NewTestCase("computed future returning nil should complete", "", func() bool {
+			res, err := NewComputedFuture(func() interface{} {
+				return nil
+			}, DirectExecutor).Get()
+			testutils.AssertNil(err)
+			testutils.AssertNil(res)
+			return true
+		}),
+		testutils.NewTestCase("nil result should propagate through chain", "", func() bool {
+			res, err := NewComputedFuture(func() interface{} {
+				return nil
+			}, DirectExecutor).Then(func(i interface{}) (interface{}, error) {
+				return i == nil, nil
+			}).Get()
+			testutils.AssertNil(err)
+			testutils.AssertTrue(res.(bool))
+			return true
+		}),
+		testutils.NewTestCase("MapPanic on not-yet-started future", "", func() bool {
+			f := NewComputedFuture(func() interface{} {
+				panic(1)
+			}, NewGoRoutineExecutor)
+			mapped := f.MapPanic(func(err interface{}) interface{} {
+				return err.(int) + 1
+			})
+			mapped.Wait()
+			res, err := mapped.Get()
+			testutils.AssertNil(err)
+			testutils.AssertEquals(res.(int), 2)
+			return true
+		}),
+		testutils.NewTestCase("WaitWithTimeout returns timeout", "", func() bool {
+			f := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+				go func() {
+					time.Sleep(2 * time.Second)
+					ra(1)
+				}()
+			})
+			err := f.WaitWithTimeout(50 * time.Millisecond)
+			testutils.AssertNonNil(err)
+			testutils.AssertTrue(err.Error() == TimeoutMsg)
+			return true
+		}),
+		testutils.NewTestCase("WaitWithTimeout returns nil on time", "", func() bool {
+			f := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+				ra(1)
+			})
+			err := f.WaitWithTimeout(time.Second)
+			testutils.AssertNil(err)
+			return true
+		}),
+		testutils.NewTestCase("GetWithTimeout returns timeout", "", func() bool {
+			f := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+				go func() {
+					time.Sleep(2 * time.Second)
+					ra(1)
+				}()
+			})
+			res, err := f.GetWithTimeout(50 * time.Millisecond)
+			testutils.AssertNonNil(err)
+			testutils.AssertNil(res)
+			testutils.AssertTrue(err.Error() == TimeoutMsg)
+			return true
+		}),
+		testutils.NewTestCase("GetWithTimeout returns value on time", "", func() bool {
+			f := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+				ra(42)
+			})
+			res, err := f.GetWithTimeout(time.Second)
+			testutils.AssertNil(err)
+			testutils.AssertEquals(res.(int), 42)
+			return true
+		}),
+		testutils.NewTestCase("timeout does not leak goroutines", "", func() bool {
+			runtime.GC()
+			time.Sleep(100 * time.Millisecond)
+			before := runtime.NumGoroutine()
+			for i := 0; i < 50; i++ {
+				f := From(func(ra ResultAcceptor, ea ErrorAcceptor) {
+					go func() {
+						time.Sleep(2 * time.Second)
+						ra(1)
+					}()
+				})
+				f.WaitWithTimeout(10 * time.Millisecond)
+			}
+			time.Sleep(3 * time.Second)
+			runtime.GC()
+			after := runtime.NumGoroutine()
+			// Allow a small buffer for runtime goroutines.
+			return after <= before+2
 		}),
 	}).Do(t)
 }

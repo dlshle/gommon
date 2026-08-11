@@ -276,9 +276,10 @@ func (p *asyncPool) handlePoolSizeExceeded(task AsyncTask) {
 		task()
 		return
 	default:
-		// by default, add a new worker temporarily to handle the extra tasks
+		// Unknown policy: fall back to Wait semantics by enqueueing the task.
+		// Note that MaxOutPolicyWait never reaches this method.
 		p.tasks.addTask(task)
-		p.addAndRunWorker()
+		p.tryAddAndRunWorker()
 	}
 }
 

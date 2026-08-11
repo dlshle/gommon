@@ -8,15 +8,34 @@ import (
 
 func RaceTimeoutWithOperation(duration time.Duration, op func()) error {
 	timer := time.NewTimer(duration)
-	opChan := make(chan bool)
+	defer timer.Stop()
+	done := make(chan struct{})
+	var panicEntity interface{}
 	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				panicEntity = recovered
+			}
+			close(done)
+		}()
 		op()
-		close(opChan)
 	}()
 	select {
 	case <-timer.C:
-		return fmt.Errorf(TimeoutMsg)
-	case <-opChan:
+		// If op completed concurrently with the timeout, prefer completion.
+		select {
+		case <-done:
+			if panicEntity != nil {
+				panic(panicEntity)
+			}
+			return nil
+		default:
+			return fmt.Errorf(TimeoutMsg)
+		}
+	case <-done:
+		if panicEntity != nil {
+			panic(panicEntity)
+		}
 		return nil
 	}
 }

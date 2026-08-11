@@ -1,6 +1,7 @@
 package async
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -68,13 +69,15 @@ type future struct {
 	waitLock       *WaitLock
 	task           ComputableAsyncTaskWithError
 	result         interface{}
+	resultSet      bool
+	isPromised     bool
 	panicEntity    interface{}
 	errEntity      error
 	isRunning      atomic.Bool
 	prevFuture     *future
 	nextFutures    []*future
 	onPanic        func(interface{})
-	propogatePanic bool
+	propagatePanic bool
 }
 
 func newAsyncTaskFuture(task AsyncTask, executor Executor) *future {
@@ -102,7 +105,7 @@ func newFuture(task ComputableAsyncTaskWithError, executor Executor, prevFuture 
 		executor:       executor,
 		waitLock:       NewWaitLock(),
 		task:           task,
-		propogatePanic: true,
+		propagatePanic: true,
 	}
 }
 
@@ -137,10 +140,10 @@ func (f *future) Wait() {
 
 func (f *future) WaitWithTimeout(duration time.Duration) error {
 	f.start()
-	if f.waitLock.IsOpen() {
+	if f.waitLock.WaitWithTimeout(duration) {
 		return nil
 	}
-	return RaceTimeoutWithOperation(duration, f.Wait)
+	return fmt.Errorf(TimeoutMsg)
 }
 
 func (f *future) Get() (interface{}, error) {
@@ -166,7 +169,8 @@ func (f *future) MustGet() interface{} {
 }
 
 func (f *future) GetWithTimeout(duration time.Duration) (result interface{}, err error) {
-	if f.waitLock.IsOpen() {
+	f.start()
+	if f.waitLock.WaitWithTimeout(duration) {
 		f.mu.Lock()
 		result = f.result
 		err = f.errEntity
@@ -177,10 +181,7 @@ func (f *future) GetWithTimeout(duration time.Duration) (result interface{}, err
 		}
 		return
 	}
-	err = RaceTimeoutWithOperation(duration, func() {
-		result, err = f.Get()
-	})
-	return
+	return nil, fmt.Errorf(TimeoutMsg)
 }
 
 func (f *future) IsDone() bool {
@@ -272,9 +273,12 @@ func (f *future) MapError(mappingFn func(error) interface{}) Future {
 
 func (f *future) MapPanic(mappingFn func(interface{}) interface{}) Future {
 	f.mu.Lock()
-	f.propogatePanic = false
+	f.propagatePanic = false
 	f.mu.Unlock()
 	return f.OnPanic(func(recovered interface{}) {
+		f.mu.Lock()
+		f.panicEntity = nil
+		f.mu.Unlock()
 		f.acceptResult(mappingFn(recovered))
 	})
 }
@@ -337,24 +341,24 @@ func (f *future) execute() {
 	f.mu.Unlock()
 	if task != nil {
 		result, err := task()
-		if err != nil {
-			f.acceptError(err)
-		} else if result != nil {
-			f.acceptResult(result)
+		if !f.isPromised {
+			if err != nil {
+				f.acceptError(err)
+			} else {
+				f.acceptResult(result)
+			}
 		}
 	}
 }
 
 func (f *future) acceptResult(result interface{}) {
-	if result == nil {
-		return
-	}
 	f.mu.Lock()
-	if f.result != nil {
+	if f.resultSet || f.errEntity != nil || f.panicEntity != nil {
 		f.mu.Unlock()
 		return
 	}
 	f.result = result
+	f.resultSet = true
 	next := append([]*future(nil), f.nextFutures...)
 	f.mu.Unlock()
 	f.openWaitLockAndStopRunning()
@@ -366,7 +370,7 @@ func (f *future) acceptError(err error) {
 		return
 	}
 	f.mu.Lock()
-	if f.errEntity != nil {
+	if f.errEntity != nil || f.resultSet || f.panicEntity != nil {
 		f.mu.Unlock()
 		return
 	}
@@ -382,7 +386,7 @@ func (f *future) acceptPanic(recovered interface{}) {
 		return
 	}
 	f.mu.Lock()
-	if f.panicEntity != nil {
+	if f.panicEntity != nil || f.resultSet || f.errEntity != nil {
 		f.mu.Unlock()
 		return
 	}
@@ -394,7 +398,7 @@ func (f *future) acceptPanic(recovered interface{}) {
 func (f *future) handlePanic(recovered interface{}) {
 	f.mu.Lock()
 	onPanic := f.onPanic
-	propagate := f.propogatePanic
+	propagate := f.propagatePanic
 	next := append([]*future(nil), f.nextFutures...)
 	f.mu.Unlock()
 	if onPanic != nil {
@@ -442,6 +446,7 @@ func NewComputedErrorReturningFuture(task ComputableAsyncTaskWithError, executor
 
 func newPromisedFuture(resolver func(ResultAcceptor, ErrorAcceptor), executor Executor, prevFuture *future, immediateRun bool) *future {
 	f := newFuture(nil, executor, prevFuture)
+	f.isPromised = true
 	f.mu.Lock()
 	f.task = func() (_ interface{}, _ error) {
 		resolver(func(computedResult interface{}) {
@@ -476,7 +481,10 @@ func IsCanceled(f Future) bool {
 	if !f.IsDone() {
 		return false
 	}
-	rawFuture := f.(*future)
+	rawFuture, ok := f.(*future)
+	if !ok {
+		return false
+	}
 	rawFuture.mu.Lock()
 	panicEntity := rawFuture.panicEntity
 	rawFuture.mu.Unlock()

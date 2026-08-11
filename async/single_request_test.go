@@ -90,5 +90,21 @@ func TestSingleRequest(t *testing.T) {
 			testutils.AssertEquals(int(counter.Load()), 1)
 			testutils.AssertEquals(int(counter1.Load()), 1)
 		}),
+		testutils.NewWithDescription("panic in fn does not deadlock waiters", "", func() {
+			requestGroup := NewRequestGroup()
+			panicFn := func() (interface{}, error) {
+				panic("boom")
+			}
+			var wg sync.WaitGroup
+			for i := 0; i < 10; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					_, err := requestGroup.Do("panic", panicFn)
+					testutils.AssertNonNil(err)
+				}()
+			}
+			wg.Wait()
+		}),
 	).Do(t)
 }

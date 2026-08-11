@@ -1,6 +1,9 @@
 package async
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type callState struct {
 	res      interface{}
@@ -56,11 +59,17 @@ func (g singleRequestGroup) create(key string, fn func() (interface{}, error)) (
 	if callStateExists {
 		return
 	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			cs.res = nil
+			cs.err = fmt.Errorf("single_request panic: %v", recovered)
+		}
+		g.withWrite(func() {
+			waitLock.Open()
+			delete(g.calls, key)
+		})
+	}()
 	cs.res, cs.err = fn()
-	g.withWrite(func() {
-		waitLock.Open()
-		delete(g.calls, key)
-	})
 	return
 }
 
